@@ -257,7 +257,7 @@ function ensureLabels() {
 function ensureMilestone(title) {
   const have = JSON.parse(sh('gh', ['api', 'repos/:owner/:repo/milestones?state=all&per_page=100'])).map((m) => m.title)
   if (have.includes(title)) return
-  sh('gh', ['api', 'repos/:owner/:repo/milestones', '-f', `title=${title}`, '-f', 'description=Backlog milestone. Source of trugl: BACKLOG.md'])
+  sh('gh', ['api', 'repos/:owner/:repo/milestones', '-f', `title=${title}`, '-f', 'description=Backlog milestone. Source of truth: BACKLOG.md'])
   console.log(`  created milestone ${title}`)
 }
 

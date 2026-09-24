@@ -84,3 +84,24 @@ trusted until that comparison exists.
   <!-- gl: prio=low size=S labels=ledger,docs -->
 - [ ] **GL-16 — Podman and containerd**: the cgroup already names them; the inspect side
   needs their APIs. <!-- gl: prio=low size=M labels=collector -->
+
+## v0.3.0 — Watched, not asked <!-- ms: phase=later -->
+
+The ledger stops depending on someone running `check`: the same verdict reaches
+Prometheus as a metric, an alert fires on it, and a dashboard shows it per node and per
+GPU. The JSON that `--json`, `/ledger` and `/findings` return becomes a contract that the
+cluster view and checkfleet can depend on.
+
+- [ ] **GL-17 — Findings as metrics**: `gpuledger_findings{code,severity}`, the count per
+  code for each refresh, so an alert and `check` never disagree; labels carry the code
+  and severity only, never a tenant. <!-- gl: prio=med size=S labels=enhancement -->
+- [ ] **GL-18 — Alert rules**: `deploy/prometheus/gpuledger.rules.yml` covering
+  `unreserved-tenant`, `source-unavailable` / `gpuledger_up == 0` and `reserved-idle`
+  held with `for:`; `promtool test rules` in CI (a CI tool, not a Go dependency).
+  <!-- gl: prio=med size=S labels=release,tests -->
+- [ ] **GL-19 — Grafana dashboard**: `deploy/grafana/gpuledger.json` built only from
+  gpuledger's own metrics: per node, per GPU, reserved against held, findings over time.
+  <!-- gl: prio=low size=S labels=docs -->
+- [ ] **GL-20 — Stable JSON**: a `schema` version field on `ls --json`, `check --json`,
+  `/ledger` and `/findings`, golden-file tests, and a documented rule for what counts as
+  a breaking change. <!-- gl: prio=med size=S labels=ledger,tests -->
