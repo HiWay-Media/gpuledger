@@ -4,7 +4,7 @@
 
 > This page is **generated** from [BACKLOG.md](BACKLOG.md), the single source of truth for planned work. Regenerate it with `node scripts/backlog.mjs roadmap` after editing the backlog — CI fails when the two disagree.
 
-**16 items · 8 shipped · 8 open · 2 milestones.**
+**20 items · 8 shipped · 12 open · 3 milestones.**
 
 ## At a glance
 
@@ -12,6 +12,7 @@
 |---|---|---|---|---|
 | **v0.1.0 — One node, told the truth** | now | `#######...` 67% | 4 | 8 |
 | **v0.2.0 — The whole cluster** | next | `..........` 0% | 4 | 0 |
+| **v0.3.0 — Watched, not asked** | later | `..........` 0% | 4 | 0 |
 
 ## v0.1.0 — One node, told the truth
 
@@ -34,3 +35,10 @@
 - [ ] **GL-14** — Capacity history · low · M · ledger
 - [ ] **GL-15** — Per-card thresholds · low · S · ledger, docs
 - [ ] **GL-16** — Podman and containerd · low · M · collector
+
+## v0.3.0 — Watched, not asked
+
+- [ ] **GL-17** — Findings as metrics · med · S · enhancement
+- [ ] **GL-18** — Alert rules · med · S · release, tests
+- [ ] **GL-19** — Grafana dashboard · low · S · docs
+- [ ] **GL-20** — Stable JSON · med · S · ledger, tests
