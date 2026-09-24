@@ -27,11 +27,15 @@ internal/metrics/            Prometheus text exposition, hand-written
 internal/render/             the table and the findings text
 internal/version/            Version, set by -ldflags at release
 testdata/                    nvidia-smi CSV fixtures, procfs cgroup fixtures, fake-nvidia-smi.sh
-deploy/nomad/                the system job spec (raw_exec, artifact from the release)
+integration/                 build tag `integration`: gpuledger against a real `nomad agent -dev` (ACLs,
+                             fake nvidia/gpu device plugin, docker tasks, a second namespace, promtool)
+deploy/nomad/                the system job spec (raw_exec, artifact from the release) and the ACL
+                             policy file the integration test gives gpuledger's token
 scripts/check-repo.sh        the repo's invariants (VERSION ↔ CHANGELOG, README statements, job spec); CI runs it
 scripts/backlog.mjs          lint · roadmap · check · issues — Node, tooling only (package.json is private)
 site/build.mjs               generates site/dist/index.html FROM README.md
-.github/workflows/           ci.yml (gofmt, vet, test, static builds, check-repo, backlog), release.yml (tag v*:
+.github/workflows/           ci.yml (gofmt, vet, test, static builds, check-repo, backlog), nomad.yml (the
+                             integration test on every stable Nomad minor since 1.0 + 1.7.3; weekly), release.yml (tag v*:
                              binaries + checksums + GitHub release + milestone), release-drift.yml (VERSION with
                              no tag for 2 h), pages.yml, backlog-issues.yml
 VERSION                      the one version; CHANGELOG.md must have its section; the tag is v<VERSION>
@@ -57,24 +61,35 @@ BACKLOG.md / ROADMAP.md      single source of truth (GL-n ids) / generated view
    held and unreserved, or both; the findings name each case with its own code.
 6. **Worst first, exit 0 by default.** The checkfleet contract: a check that ran is a
    success; `--exit-on` is the gate.
-7. **The device id matching is forgiving on purpose** (`ledger.gpuMatches`): full UUID,
+7. **Unreserved needs proof.** A Nomad tenant is `unreserved-tenant` only when Nomad was
+   read and returned its allocation without this GPU. Nomad filters the node's
+   allocations by the token's `read-job` silently; an allocation it did not return is a
+   `source-unavailable` ERROR naming the namespace, and with Nomad unread there is no
+   verdict on reservations at all.
+8. **The device id matching is forgiving on purpose** (`ledger.gpuMatches`): full UUID,
    the plugin's short `GPU-xxxxxxxx`, the index, or `all`. A false negative here turns a
    reserved tenant into an `unreserved-tenant` BAD; add a form only with a test.
 
 ## Facts the code depends on (dated — re-verify before every tag)
 
-- **Nomad docker driver** (developer.hashicorp.com/nomad/docs/deploy/task-driver/docker,
-  read 2026-09-23): every container it starts carries the label
-  `com.hashicorp.nomad.allocation_id`; `job_name`, `job_id`, `task_group_name`,
-  `task_name`, `namespace`, `node_name`, `node_id` only when listed in `extra_labels`.
-  Nomad names its pause container `nomad_init_<alloc>`.
+- **Nomad docker driver** — observed by the Nomad matrix on 1.0.18 – 2.0.7, 2026-09-24:
+  every container it starts carries `com.hashicorp.nomad.alloc_id` (the docs page's
+  `allocation_id` is not what the driver writes; both are read); `job_name`,
+  `task_group_name`, `task_name`, `namespace`, `node_name` only when listed in
+  `extra_labels`, which Nomad 1.0 does not have (the agent refuses the config). The
+  task's cgroup is `/system.slice/docker-<id>.scope`, `/nomad.slice/docker-<id>.scope`
+  on 1.3 – 1.6. Nomad names its pause container `nomad_init_<alloc>`.
+- **Nomad ACLs** (same runs): `/v1/agent/self` needs `agent:read`, `/v1/node/<id>/allocations`
+  needs `node:read` and returns only the allocations in namespaces where the token has
+  `read-job`, with no error. `deploy/nomad/gpuledger.policy.hcl` is the tested minimum.
+  `datacenters = ["*"]` matches every datacenter from 1.5 only.
 - **NVIDIA device plugin** (developer.hashicorp.com/nomad/plugins/devices/nvidia,
   2026-09-23): device ids are the GPU UUIDs, shown as `GPU-fef8089b` in `ignored_gpu_ids`
   examples; the task receives `NVIDIA_VISIBLE_DEVICES`; the job asks with
   `device "nvidia/gpu" { count = 1 }`.
-- **Allocation API**: `AllocatedResources.Tasks.<task>.Devices[]` with `Vendor`, `Type`,
-  `Name`, `DeviceIDs`; `/v1/node/<id>/allocations` returns full allocations;
-  `/v1/agent/self` → `stats.client.node_id` on a client.
+- **Allocation API** (observed on every version in the matrix): `AllocatedResources.Tasks.<task>.Devices[]`
+  with `Vendor`, `Type`, `Name`, `DeviceIDs`; `/v1/node/<id>/allocations` returns full
+  allocations; `/v1/agent/self` → `stats.client.node_id` on a client.
 - **nvidia-smi**: `--query-gpu` and `--query-compute-apps` with `--format=csv,noheader,nounits`;
   `[N/A]` and `[Not Supported]` appear as values and parse to 0; UUIDs are `GPU-<uuid>`.
 - **Docker Engine API**: `GET /containers/json`, `GET /containers/<id>/json`
@@ -90,6 +105,7 @@ BACKLOG.md / ROADMAP.md      single source of truth (GL-n ids) / generated view
 ```bash
 gofmt -l cmd internal && go vet ./... && go test ./... -count=1
 ./scripts/check-repo.sh
+go vet -tags integration ./integration     # the real-Nomad test runs in CI (Linux, root, Docker)
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o dist/gpuledger ./cmd/gpuledger
 go run ./cmd/gpuledger ls --nvidia-smi testdata/fake-nvidia-smi.sh --proc testdata/proc --no-docker --no-nomad
 npm run backlog && npm run build:site
@@ -97,7 +113,8 @@ npm run backlog && npm run build:site
 
 On a real node: `gpuledger check` with `NOMAD_TOKEN` exported if the cluster has ACLs;
 compare `reserved by` with `nomad alloc status`, and `tenants` with `nvidia-smi` and
-`docker ps`. That comparison, written into the README with a date, is the 0.1.0 gate.
+`docker ps`. That comparison, written into the README with a date, is GL-10: the only
+evidence for the driver side that CI cannot produce.
 
 ## Conventions
 

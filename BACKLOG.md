@@ -21,58 +21,68 @@ synced from it one way on every push to `main` that changes this file.
   decided against → ticked with `ver=dropped` and the reason in the body.
 - Labels: `collector`, `ledger`, `benchmark`, `release`, `docs`, `project`, `tests`, `enhancement`.
 
-## v0.1.0 — One node, told the truth <!-- ms: phase=now -->
+## v0.1.0 — One node, told the truth <!-- ms: phase=shipped -->
 
-The first release: the ledger run on a real GPU node with the real device plugin, its
-three columns compared against `nomad alloc status`, `nvidia-smi` and `docker ps`, and
-the comparison written in the README with a date. Nothing about the collectors is
-trusted until that comparison exists.
+The first release. Its gate was the run on a real GPU node (GL-10); it became every
+stable Nomad minor from 1.0 to 2.0, run for real in CI (GL-21), after a test-first pass
+over the whole code (GL-22): the facts the collectors depend on are Nomad's, and the
+matrix observes them on every version, weekly, where one node observes one. GL-10 still
+owes the driver side and moved to v0.2.0, with GL-1 and GL-11.
 
-**The comparison is the gate on this milestone.** No `v0.1.0` before GL-10 is in the README.
+- [x] **GL-2 — nvidia-smi collector**: `--query-gpu` and `--query-compute-apps` CSV,
+  `[N/A]` tolerant, process names reduced to the binary. <!-- gl: prio=high size=S labels=collector ver=0.1.0 -->
+- [x] **GL-3 — Container collector**: `/proc/<pid>/cgroup` (v1, v2, containerd) →
+  Docker Engine API over the unix socket or http; only Nomad labels and
+  `NVIDIA_VISIBLE_DEVICES` kept; containers holding a GPU without a process included.
+  <!-- gl: prio=high size=M labels=collector ver=0.1.0 -->
+- [x] **GL-4 — Nomad collector**: node id from the agent, reservations from the node's
+  allocations' `AllocatedResources`, token from an env var named by flag.
+  <!-- gl: prio=high size=S labels=collector ver=0.1.0 -->
+- [x] **GL-5 — The join**: per GPU, reservations and tenants (nomad, docker, host) with
+  the reserved flag; forgiving device id matching (UUID, short UUID, index, all).
+  <!-- gl: prio=high size=M labels=ledger ver=0.1.0 -->
+- [x] **GL-6 — Findings**: nine codes, worst first, `--exit-on`, `--allow-unmanaged`,
+  `--no-idle`, thresholds by flag. <!-- gl: prio=high size=S labels=ledger ver=0.1.0 -->
+- [x] **GL-7 — The CLI and the exporter**: `ls`, `check`, `serve` (`/metrics`, `/ledger`,
+  `/findings`, `/healthz`), `version`; metrics labels never carry a process, pid, image or path.
+  <!-- gl: prio=med size=M labels=enhancement ver=0.1.0 -->
+- [x] **GL-8 — Tests without a GPU**: fixtures, `fake-nvidia-smi.sh`, fake Docker and Nomad
+  servers, unit and end-to-end tests. <!-- gl: prio=high size=M labels=tests ver=0.1.0 -->
+- [x] **GL-9 — Repo operating model**: CI (gofmt, vet, tests, static builds, check-repo),
+  release by tag with checksums, drift check, Pages from README, backlog sync, the Nomad
+  system job spec. <!-- gl: prio=med size=M labels=project,release ver=0.1.0 -->
+- [x] **GL-12 — Release 0.1.0**: VERSION, CHANGELOG, tag — once the Nomad matrix is green
+  on every version. <!-- gl: prio=med size=S labels=release ver=0.1.0 -->
+- [x] **GL-21 — Nomad matrix**: `integration/nomad_test.go` against a real
+  `nomad agent -dev` on the latest patch of every minor since 1.0 plus 1.7.3, weekly:
+  ACLs on, Nomad's example device plugin rebuilt as `nvidia/gpu`, Docker tasks in two
+  namespaces and one outside Nomad, every join case, the tested ACL policy file,
+  `promtool check metrics`, `nomad job validate` of the system job. It found the silent
+  `read-job` filter and the `alloc_id` label. <!-- gl: prio=high size=M labels=tests,collector ver=0.1.0 -->
+- [x] **GL-22 — Test-first pass**: a failing test for each defect, then the fix — argument
+  paths leaking into process names, `--exit-on` typos passing a gate, interleaved and
+  duplicate metric series, map-ordered tenants, a panic on short container ids,
+  allocations hidden by ACLs judged unreserved. <!-- gl: prio=high size=M labels=tests ver=0.1.0 -->
 
+## v0.2.0 — The whole cluster <!-- ms: phase=now -->
+
+- [ ] **GL-10 — First run on a real node**: `gpuledger check` on one host of the farm
+  (`gpud` has both a Nomad restreamer and a hand-started encoding container) against
+  `nomad alloc status`, `nvidia-smi` and `docker ps`; the three-column comparison and
+  every mismatch into the README, dated — the only evidence for the driver side
+  (nvidia-smi, the NVIDIA device plugin) that CI cannot produce.
+  <!-- gl: prio=high size=S labels=benchmark -->
 - [ ] **GL-1 — Run QRSPI on the brief: Questions → Research → Spec → Plan**: input
   `thoughts/GL-1-gpu-ledger/00-brief.md`, one fresh session per phase. The design
   questions it must settle: how encoder-only sessions (NVENC without a CUDA context) are
   attributed when `query-compute-apps` does not list them; whether a tenant seen by the
   driver but absent from Docker and Nomad (a bare process) should ever be OK; the
-  thresholds' defaults per card family (Quadro RTX 4000, L4); and what the system job
-  needs on a node where Nomad has ACLs. <!-- gl: prio=high size=L labels=ledger -->
-- [x] **GL-2 — nvidia-smi collector**: `--query-gpu` and `--query-compute-apps` CSV,
-  `[N/A]` tolerant, process names reduced to the binary. <!-- gl: prio=high size=S labels=collector ver=main -->
-- [x] **GL-3 — Container collector**: `/proc/<pid>/cgroup` (v1, v2, containerd) →
-  Docker Engine API over the unix socket or http; only Nomad labels and
-  `NVIDIA_VISIBLE_DEVICES` kept; containers holding a GPU without a process included.
-  <!-- gl: prio=high size=M labels=collector ver=main -->
-- [x] **GL-4 — Nomad collector**: node id from the agent, reservations from the node's
-  allocations' `AllocatedResources`, token from an env var named by flag.
-  <!-- gl: prio=high size=S labels=collector ver=main -->
-- [x] **GL-5 — The join**: per GPU, reservations and tenants (nomad, docker, host) with
-  the reserved flag; forgiving device id matching (UUID, short UUID, index, all).
-  <!-- gl: prio=high size=M labels=ledger ver=main -->
-- [x] **GL-6 — Findings**: nine codes, worst first, `--exit-on`, `--allow-unmanaged`,
-  `--no-idle`, thresholds by flag. <!-- gl: prio=high size=S labels=ledger ver=main -->
-- [x] **GL-7 — The CLI and the exporter**: `ls`, `check`, `serve` (`/metrics`, `/ledger`,
-  `/findings`, `/healthz`), `version`; metrics labels never carry a process, pid, image or path.
-  <!-- gl: prio=med size=M labels=enhancement ver=main -->
-- [x] **GL-8 — Tests without a GPU**: fixtures, `fake-nvidia-smi.sh`, fake Docker and Nomad
-  servers, unit and end-to-end tests. <!-- gl: prio=high size=M labels=tests ver=main -->
-- [x] **GL-9 — Repo operating model**: CI (gofmt, vet, tests, static builds, check-repo),
-  release by tag with checksums, drift check, Pages from README, backlog sync, the Nomad
-  system job spec. <!-- gl: prio=med size=M labels=project,release ver=main -->
-- [ ] **GL-10 — First run on a real node**: `gpuledger check` on one host of the farm
-  (`gpud` has both a Nomad restreamer and a hand-started encoding container) against
-  `nomad alloc status`, `nvidia-smi` and `docker ps`; the three-column comparison and
-  every mismatch into the README, dated. **Gates the release.**
-  <!-- gl: prio=high size=S labels=benchmark -->
+  thresholds' defaults per card family (Quadro RTX 4000, L4). (What the token needs
+  with ACLs is answered by GL-21: `deploy/nomad/gpuledger.policy.hcl`.) <!-- gl: prio=high size=L labels=ledger -->
 - [ ] **GL-11 — Encoder-only sessions**: `nvidia-smi encodersessions` lists NVENC
   sessions with their pids where `query-compute-apps` does not; parse it as a third
   source so an encoder tenant is attributed, not just counted.
   <!-- gl: prio=med size=M labels=collector -->
-- [ ] **GL-12 — Release 0.1.0**: VERSION, CHANGELOG, tag — after GL-10.
-  <!-- gl: prio=med size=S labels=release -->
-
-## v0.2.0 — The whole cluster <!-- ms: phase=next -->
-
 - [ ] **GL-13 — Cluster view**: one command that reads every node's `/ledger` via Consul
   service discovery (or a list of addresses) and prints the fleet: GPUs total, held,
   reserved-idle, unmanaged, per node and per job. <!-- gl: prio=med size=M labels=enhancement -->
@@ -85,7 +95,7 @@ trusted until that comparison exists.
 - [ ] **GL-16 — Podman and containerd**: the cgroup already names them; the inspect side
   needs their APIs. <!-- gl: prio=low size=M labels=collector -->
 
-## v0.3.0 — Watched, not asked <!-- ms: phase=later -->
+## v0.3.0 — Watched, not asked <!-- ms: phase=next -->
 
 The ledger stops depending on someone running `check`: the same verdict reaches
 Prometheus as a metric, an alert fires on it, and a dashboard shows it per node and per

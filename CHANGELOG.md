@@ -5,7 +5,39 @@ versions follow [SemVer](https://semver.org/). Items reference their `GL-n` back
 
 ## [Unreleased]
 
+## [0.1.0] — 2026-09-24
+
+The first release. The Nomad side is tested against real agents on every stable minor
+from 1.0 to 2.0; the NVIDIA side against a fake nvidia-smi until the run on a real GPU
+node (GL-10, now in v0.2.0).
+
+### Added
+- The Nomad matrix: `integration/nomad_test.go` against a real `nomad agent -dev` on the
+  latest patch of every Nomad minor since 1.0, read from releases.hashicorp.com at run
+  time, plus 1.7.3 — ACLs on, Nomad's example device plugin rebuilt as `nvidia/gpu`,
+  Docker tasks in two namespaces and one outside Nomad; every join case, `promtool check
+  metrics` on `/metrics`, `nomad job validate` on the system job. On every change and
+  weekly (GL-21). Green on 1.0.18, 1.1.18, 1.2.16, 1.3.16, 1.4.14, 1.5.17, 1.6.10, 1.7.3,
+  1.7.7, 1.8.4, 1.9.7, 1.10.5, 1.11.3 and 2.0.7.
+- `deploy/nomad/gpuledger.policy.hcl`: the ACL policy gpuledger's token needs —
+  `agent:read`, `node:read`, `read-job` on the namespaces — the one the matrix tests with.
+- The README's Compatibility section: what the matrix observed on every version.
+- Unit tests for every fix below, the Docker client over a unix socket, nvidia-smi's
+  failure paths, the exit code under every policy and the HTTP handlers.
+
+### Changed
+- Tenant series in `/metrics` carry a `container_id` label.
+- The system job takes `datacenters` as a variable: `"*"` matches every datacenter from
+  Nomad 1.5 only.
+- The ledger JSON carries `nomadRead` and, per tenant, `allocVisible`.
+
 ### Fixed
+- With ACLs, Nomad leaves out of `/v1/node/<id>/allocations`, without an error, the
+  allocations in namespaces the token cannot `read-job`: every Nomad task there was a
+  false `unreserved-tenant` BAD and its GPU a false `idle`. A Nomad container whose
+  allocation was not returned is now a `source-unavailable` ERROR naming the namespace
+  and the capability, and with Nomad unread (`--no-nomad`, or down) no task is judged on
+  reservations (GL-22).
 - A process name holding arguments leaked a path element from them (`ffmpeg -i
   /data/x/match.mp4` became `match.mp4`); the name is now cut at the first blank before
   the directory is dropped.
@@ -22,10 +54,6 @@ versions follow [SemVer](https://semver.org/). Items reference their `GL-n` back
   device with type `gpu` could not match any UUID. A Nomad 403 names the ACL capability
   the token lacks.
 - `/healthz` answered `ok` in the body of a 503; it now lists the failing sources.
-
-### Added
-- Unit tests for every fix above, the Docker client over a unix socket, nvidia-smi's
-  failure paths, the exit code under every policy and the HTTP handlers.
 
 ## [0.0.1] — 2026-09-24
 

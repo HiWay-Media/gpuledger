@@ -4,33 +4,35 @@
 
 > This page is **generated** from [BACKLOG.md](BACKLOG.md), the single source of truth for planned work. Regenerate it with `node scripts/backlog.mjs roadmap` after editing the backlog — CI fails when the two disagree.
 
-**20 items · 8 shipped · 12 open · 3 milestones.**
+**22 items · 11 shipped · 11 open · 3 milestones.**
 
 ## At a glance
 
 | Milestone | Phase | Progress | Open | Shipped |
 |---|---|---|---|---|
-| **v0.1.0 — One node, told the truth** | now | `#######...` 67% | 4 | 8 |
-| **v0.2.0 — The whole cluster** | next | `..........` 0% | 4 | 0 |
-| **v0.3.0 — Watched, not asked** | later | `..........` 0% | 4 | 0 |
+| **v0.1.0 — One node, told the truth** | shipped | `##########` 100% | 0 | 11 |
+| **v0.2.0 — The whole cluster** | now | `..........` 0% | 7 | 0 |
+| **v0.3.0 — Watched, not asked** | next | `..........` 0% | 4 | 0 |
 
 ## v0.1.0 — One node, told the truth
 
-- [ ] **GL-1** — Run QRSPI on the brief: Questions → Research → Spec → Plan · high · L · ledger
-- [x] **GL-2** — nvidia-smi collector · high · S · collector · `main`
-- [x] **GL-3** — Container collector · high · M · collector · `main`
-- [x] **GL-4** — Nomad collector · high · S · collector · `main`
-- [x] **GL-5** — The join · high · M · ledger · `main`
-- [x] **GL-6** — Findings · high · S · ledger · `main`
-- [x] **GL-7** — The CLI and the exporter · med · M · enhancement · `main`
-- [x] **GL-8** — Tests without a GPU · high · M · tests · `main`
-- [x] **GL-9** — Repo operating model · med · M · project, release · `main`
-- [ ] **GL-10** — First run on a real node · high · S · benchmark
-- [ ] **GL-11** — Encoder-only sessions · med · M · collector
-- [ ] **GL-12** — Release 0.1.0 · med · S · release
+- [x] **GL-2** — nvidia-smi collector · high · S · collector · `0.1.0`
+- [x] **GL-3** — Container collector · high · M · collector · `0.1.0`
+- [x] **GL-4** — Nomad collector · high · S · collector · `0.1.0`
+- [x] **GL-5** — The join · high · M · ledger · `0.1.0`
+- [x] **GL-6** — Findings · high · S · ledger · `0.1.0`
+- [x] **GL-7** — The CLI and the exporter · med · M · enhancement · `0.1.0`
+- [x] **GL-8** — Tests without a GPU · high · M · tests · `0.1.0`
+- [x] **GL-9** — Repo operating model · med · M · project, release · `0.1.0`
+- [x] **GL-12** — Release 0.1.0 · med · S · release · `0.1.0`
+- [x] **GL-21** — Nomad matrix · high · M · tests, collector · `0.1.0`
+- [x] **GL-22** — Test-first pass · high · M · tests · `0.1.0`
 
 ## v0.2.0 — The whole cluster
 
+- [ ] **GL-10** — First run on a real node · high · S · benchmark
+- [ ] **GL-1** — Run QRSPI on the brief: Questions → Research → Spec → Plan · high · L · ledger
+- [ ] **GL-11** — Encoder-only sessions · med · M · collector
 - [ ] **GL-13** — Cluster view · med · M · enhancement
 - [ ] **GL-14** — Capacity history · low · M · ledger
 - [ ] **GL-15** — Per-card thresholds · low · S · ledger, docs
