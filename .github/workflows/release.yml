@@ -1,0 +1,82 @@
+name: Release
+
+# On a tag v<version> matching VERSION: build static binaries for linux/amd64 and
+# linux/arm64, attach them with checksums to a GitHub release, close the milestone.
+# Re-run with `gh workflow run Release -f tag=v0.1.0`; every step is idempotent.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to release, e.g. v0.1.0'
+        required: true
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+          fetch-depth: 0
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - id: v
+        name: Resolve and verify the version
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -eu
+          TAG_VERSION="${TAG#v}"
+          FILE_VERSION="$(tr -d ' \n' < VERSION)"
+          if [ "$TAG_VERSION" != "$FILE_VERSION" ]; then
+            echo "::error::tag $TAG says $TAG_VERSION but VERSION says $FILE_VERSION"; exit 1
+          fi
+          echo "version=$TAG_VERSION" >> "$GITHUB_OUTPUT"
+      - run: go test ./... -count=1
+      - name: Build static binaries
+        env:
+          V: ${{ steps.v.outputs.version }}
+        run: |
+          set -eu
+          mkdir -p dist
+          for arch in amd64 arm64; do
+            CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath -ldflags "-s -w -X github.com/hiway-media/gpuledger/internal/version.Version=v$V" -o "dist/gpuledger-v$V-linux-$arch" ./cmd/gpuledger
+          done
+          (cd dist && sha256sum * > "gpuledger-v$V-checksums.txt" && cat "gpuledger-v$V-checksums.txt")
+      - name: Create or update the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+          V: ${{ steps.v.outputs.version }}
+        run: |
+          set -eu
+          NOTES="$(awk -v v="$V" '$0 ~ "^## \\["v"\\]" {f=1; next} /^## \[/ {f=0} f' CHANGELOG.md)"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+          else
+            gh release create "$TAG" dist/* --title "gpuledger v$V" --notes "$NOTES"
+          fi
+      - name: Close the milestone
+        env:
+          GH_TOKEN: ${{ github.token }}
+          V: ${{ steps.v.outputs.version }}
+        run: |
+          set -eu
+          NUM=$(gh api "repos/$GITHUB_REPOSITORY/milestones?state=open" --jq ".[] | select(.title | startswith(\"v$V\")) | .number" | head -1)
+          [ -z "$NUM" ] && { echo "no open milestone starts with v$V"; exit 0; }
+          OPEN=$(gh api "repos/$GITHUB_REPOSITORY/milestones/$NUM" --jq .open_issues)
+          [ "$OPEN" != "0" ] && { echo "milestone $NUM still has $OPEN open issues — left open"; exit 0; }
+          gh api -X PATCH "repos/$GITHUB_REPOSITORY/milestones/$NUM" -f state=closed >/dev/null && echo "closed milestone $NUM"

@@ -1,0 +1,131 @@
+<p align="center"><img src="https://raw.githubusercontent.com/hiway-media/gpuledger/main/assets/logo.svg" width="96" height="96" alt="gpuledger"></p>
+
+# gpuledger — who holds which GPU on your Nomad cluster, and what it is doing
+
+Nomad's NVIDIA device plugin fingerprints GPUs and schedules them. It does not tell you
+who is actually on a card: the allocation Nomad gave it to, the container somebody
+started by hand with `--gpus`, the bare process that survived a deploy, the worker
+that holds a device and does nothing. gpuledger is one static binary that asks the
+driver, the container runtime and the local Nomad agent, joins the three answers per
+GPU, and reports them as a table, as findings with a verdict, and as Prometheus metrics.
+It is **read-only**, dependency-free, and it never prints a command line or an
+environment value.
+
+```
+$ gpuledger ls
+gpuledger · gpud · 2 GPU(s) · 2026-09-24 09:12:40Z
+│ gpu │ model           │ util │ memory        │ temp  │ enc │ reserved by (nomad)            │ tenants                                                                                     │
+├─────┼─────────────────┼──────┼───────────────┼───────┼─────┼────────────────────────────────┼─────────────────────────────────────────────────────────────────────────────────────────────┤
+│ 0   │ Quadro RTX 4000 │ 72%  │ 3120/8192 MiB │ 66 °C │ 3   │ gpu-gpud-restreamer/restreamer │ docker:gpu-d-new-c0 (2048 MiB) !unmanaged; nomad:gpu-gpud-restreamer/restreamer (1024 MiB) │
+│ 1   │ Quadro RTX 4000 │ 0%   │ 0/8192 MiB    │ 41 °C │ 0   │ tngrm-video-worker-gpud/worker │                                                                                             │
+
+$ gpuledger check
+🔴 BAD   unmanaged-tenant   gpu0 GPU-fef8089b   container gpu-d-new-c0 (encoding:handbrake-4.1.3-prod) holds this GPU outside Nomad — 2048 MiB, pids [4242]
+🟡 WARN  contended          gpu0 GPU-fef8089b   2 tenants share this GPU: [gpu-d-new-c0 restreamer-3e5d2f75-abcd]
+🟡 WARN  reserved-idle      gpu1 GPU-ac81e44d   reserved by tngrm-video-worker-gpud/worker (alloc 77777777) but no process or container holds it
+
+3 findings: 0 OK, 2 WARN, 1 BAD, 0 ERROR
+```
+
+> **Status: implemented and tested against fakes; not yet run on a real node.** The
+> collectors follow the documented shapes — nvidia-smi's CSV queries, the Docker Engine
+> API, Nomad's docker driver labels and allocation API — and the join and the findings
+> are unit-tested. The first run on a GPU node with the real device plugin is the gate on
+> 0.1.0 (`BACKLOG.md`). Built for the HiWay Media video farm, where four services share
+> two GPUs per host and one of them is started by hand.
+
+## What it answers
+
+| Question | Where the answer comes from |
+|---|---|
+| What is on each card right now — utilisation, memory, temperature, power, NVENC sessions | `nvidia-smi --query-gpu`, the documented CSV form, no NVML binding |
+| Which processes hold it, and how much memory each | `nvidia-smi --query-compute-apps` — the process name is reduced to its binary, arguments are never read |
+| Which container each process is in, and whether Nomad started it | `/proc/<pid>/cgroup` → container id → Docker Engine API; Nomad's `com.hashicorp.nomad.allocation_id` label (plus `job_name`, `task_name`, `namespace` when the driver's `extra_labels` are on) |
+| Which containers hold a GPU with no process at this instant | the container's `NVIDIA_VISIBLE_DEVICES` and `DeviceRequests` — the only environment variable it reads |
+| Which allocation Nomad **reserved** each GPU for | the local agent: `/v1/agent/self` for the node id, `/v1/node/<id>/allocations` for `AllocatedResources.Tasks.*.Devices[].DeviceIDs` |
+
+The join is per GPU: the reservations Nomad made, the tenants that actually hold it, and
+whether each tenant was reserved. From that, the findings:
+
+| Code | Level | Meaning |
+|---|---|---|
+| `unreserved-tenant` | BAD | a Nomad task uses a GPU Nomad did not allocate to it — a `NVIDIA_VISIBLE_DEVICES=all` or a missing `device` stanza |
+| `unmanaged-tenant` | BAD (WARN with `--allow-unmanaged`) | a container nobody orchestrates, or a bare host process, holds the card |
+| `contended` | WARN | two or more distinct tenants on one GPU |
+| `reserved-idle` | WARN | Nomad reserved the GPU and nothing holds it |
+| `encoder-saturated` | WARN | NVENC sessions at or above `--encoder-max` (default 8) |
+| `hot` | WARN | temperature at or above `--temp-max` (default 85 °C) |
+| `source-unavailable` | ERROR | nvidia-smi, Docker or Nomad could not be read — the ledger is partial and says so |
+| `idle` | OK | no tenant, no reservation: free capacity (`--no-idle` hides it) |
+| `held` | OK | every tenant on the card is the one Nomad reserved it for |
+
+Worst first. The exit code is 0 whatever the findings — a check that ran is a success —
+unless `--exit-on warn|bad|error` asks for one, for CI and for check runners.
+
+## Run it
+
+**Once, on a node:**
+
+```
+gpuledger ls
+gpuledger check --json
+gpuledger check --exit-on bad --allow-unmanaged
+```
+
+**As a system job**, one per GPU node, scraping `/metrics` on 9877:
+[`deploy/nomad/gpuledger.nomad.hcl`](deploy/nomad/gpuledger.nomad.hcl). It uses
+`raw_exec` on purpose: the ledger reads the host's `nvidia-smi`, `/proc` and Docker
+socket, which a container would have to be handed anyway.
+
+```
+nomad job run -var version=0.1.0 deploy/nomad/gpuledger.nomad.hcl
+curl -s http://<node>:9877/metrics | grep gpuledger_gpu_tenants
+```
+
+Metrics: `gpuledger_up`, `gpuledger_gpu_info{model,bus}`, `_utilization_percent`,
+`_memory_used_bytes`, `_memory_total_bytes`, `_temperature_celsius`, `_power_watts`,
+`_encoder_sessions`, `_tenants`, `_reservations`, and per tenant
+`gpuledger_tenant_memory_bytes{kind,container,job,task,alloc,namespace}` and
+`gpuledger_tenant_reserved`. Labels carry names and ids, never a process name, a pid, an
+image or a path. `/ledger` and `/findings` return the same as JSON; `/healthz` is 503
+while a source is unreadable.
+
+**Flags:** `--nomad-addr` (default `$NOMAD_ADDR` or `http://127.0.0.1:4646`),
+`--nomad-token-env NOMAD_TOKEN` — the **name** of the variable holding the ACL token, so
+the token is never on a command line — `--docker unix:///var/run/docker.sock`,
+`--nvidia-smi`, `--proc /proc`, `--node`, `--json`, `--no-nomad`, `--no-docker`,
+`--encoder-max`, `--temp-max`, `--allow-unmanaged`, `--no-idle`, `--listen`, `--interval`.
+
+## What it does not do
+
+- Write anything: no `nomad`, `docker` or `nvidia-smi` command that changes state is ever
+  invoked. Reads only.
+- Bind NVML. Shelling out to `nvidia-smi`'s documented CSV queries keeps the binary
+  static and the driver dependency out of the build; the cost is one process spawn per
+  refresh, tens of milliseconds.
+- See encoder-only sessions as processes. NVENC sessions without a CUDA context appear
+  in `encoder.stats.sessionCount` but not always in `query-compute-apps`; the count is
+  reported per GPU, the owner is attributed only when a process is visible.
+- Know about MIG partitions or Kubernetes. Nomad and plain Docker, one node at a time.
+
+## Install
+
+Static binaries for linux/amd64 and linux/arm64 on the
+[releases page](https://github.com/hiway-media/gpuledger/releases), with checksums.
+From source: `go install github.com/hiway-media/gpuledger/cmd/gpuledger@latest` (Go 1.27).
+Requires `nvidia-smi` on the node and, for tenant resolution, read access to the Docker
+socket and `/proc`.
+
+## Prior art
+
+- [nomad-device-nvidia](https://github.com/hashicorp/nomad-device-nvidia): the plugin that
+  fingerprints and schedules; gpuledger reads what it scheduled and compares it with
+  what runs.
+- [dcgm-exporter](https://github.com/NVIDIA/dcgm-exporter): per-GPU telemetry with pod
+  labels on Kubernetes; no Nomad, no notion of an unmanaged tenant.
+- [checkfleet](https://github.com/Allan-Nava/checkfleet): the same findings contract —
+  worst first, exit 0 by default — for a fleet of domain checks.
+
+## License
+
+MIT.

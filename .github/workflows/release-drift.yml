@@ -1,0 +1,48 @@
+name: Release drift
+
+# A merged release PR publishes nothing: the tag is the trigger and pushing it is
+# manual. qrspi 0.1.1 sat on main untagged for a week and nothing said so. This says so.
+#
+# It fails when VERSION has no v<version> tag, once the commit
+# that set the version is older than the grace a release PR needs between merging
+# and tagging. It runs on push so a bump is checked, and daily so a quiet repo still
+# hears about a tag nobody pushed — a failing scheduled run emails the owner.
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Compare VERSION against the tags
+        run: |
+          VERSION="$(tr -d ' \n' < VERSION)"
+          TAG="v$VERSION"
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            echo "$TAG exists — nothing to report"
+            exit 0
+          fi
+          # The commit that last touched the version line, and how long ago.
+          SET_AT="$(git log -1 --format=%ct -- VERSION)"
+          AGE=$(( $(date +%s) - SET_AT ))
+          GRACE=$(( 2 * 3600 ))
+          if [ "$AGE" -lt "$GRACE" ]; then
+            echo "::notice::$VERSION is on main without $TAG for $((AGE / 60)) min — inside the grace window"
+            exit 0
+          fi
+          echo "::error::$VERSION has been on main for $((AGE / 3600)) h with no $TAG — nothing was released. From a checkout of main: git tag $TAG && git push origin $TAG"
+          exit 1

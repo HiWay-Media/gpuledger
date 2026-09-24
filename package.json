@@ -1,0 +1,12 @@
+{
+  "name": "gpuledger-tooling",
+  "private": true,
+  "description": "Tooling only: the Pages site generator and the backlog scripts. gpuledger itself is a Go binary with no runtime dependencies.",
+  "type": "module",
+  "scripts": {
+    "test": "node scripts/backlog_test.mjs",
+    "backlog": "node scripts/backlog.mjs lint && node scripts/backlog.mjs check",
+    "build:site": "node site/build.mjs"
+  },
+  "devDependencies": { "marked": "^17.0.0" }
+}

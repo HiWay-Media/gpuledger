@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # gofmt, vet, the tests (unit and end to end against fake nvidia-smi, Docker and Nomad),
+  # and a static build for the two Linux targets a GPU node can be.
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - run: test -z "$(gofmt -l cmd internal)" || { gofmt -l cmd internal; exit 1; }
+      - run: go vet ./...
+      - run: go test ./... -count=1
+      - run: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o dist/gpuledger-linux-amd64 ./cmd/gpuledger
+      - run: CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "-s -w" -o dist/gpuledger-linux-arm64 ./cmd/gpuledger
+      - run: file dist/* && ls -la dist/
+      # The repository's own invariants: VERSION vs CHANGELOG vs README, the statements
+      # the README must carry, the Nomad job spec naming the right binary.
+      - run: ./scripts/check-repo.sh
+
+  # BACKLOG.md is the single source of truth; ROADMAP.md is generated from it.
+  backlog:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: node scripts/backlog.mjs lint
+      - run: node scripts/backlog.mjs check
+      - run: node scripts/backlog_test.mjs
