@@ -1,0 +1,138 @@
+name: Nomad matrix
+
+# gpuledger against a real Nomad agent, every stable minor from 1.0 on (the latest
+# patch of each, from releases.hashicorp.com at run time) plus 1.7.3, the version the
+# HiWay farm runs. No GPU: Nomad's example device plugin, rebuilt with vendor "nvidia"
+# and type "gpu", exposes files named like GPU UUIDs; the scheduler, the allocation API,
+# ACLs and the docker driver's labels are Nomad's own. See integration/nomad_test.go.
+#
+# Weekly as well as on every change, so a new Nomad minor joins the matrix by itself.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '17 5 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nomad-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The Nomad source the fake device plugin is built from. The device plugin protocol
+  # has not changed since 0.9, so one build serves every agent in the matrix.
+  PLUGIN_FROM: v2.0.7
+  # Always tested, whatever the latest patches are: what production runs.
+  PINNED: '1.7.3'
+  FLOOR: '1.0'
+
+jobs:
+  versions:
+    runs-on: ubuntu-latest
+    outputs:
+      list: ${{ steps.v.outputs.list }}
+    steps:
+      - id: v
+        name: Latest GA patch of every Nomad minor since the floor
+        run: |
+          curl -fsSL https://releases.hashicorp.com/nomad/index.json -o index.json
+          LIST=$(node -e '
+            const floor = process.env.FLOOR.split(".").map(Number)
+            const vs = Object.keys(require("./index.json").versions).filter((s) => /^\d+\.\d+\.\d+$/.test(s))
+            const by = {}
+            for (const s of vs) {
+              const [a, b, c] = s.split(".").map(Number)
+              if (a < floor[0] || (a === floor[0] && b < floor[1])) continue
+              const k = a + "." + b
+              if (!by[k] || c > by[k][2]) by[k] = [a, b, c]
+            }
+            const out = Object.values(by).map((x) => x.join("."))
+            for (const p of process.env.PINNED.split(" ")) if (!out.includes(p)) out.push(p)
+            out.sort((x, y) => x.localeCompare(y, "en", { numeric: true }))
+            console.log(JSON.stringify(out))')
+          echo "list=$LIST" >> "$GITHUB_OUTPUT"
+          echo "Nomad versions: $LIST" >> "$GITHUB_STEP_SUMMARY"
+
+  plugin:
+    runs-on: ubuntu-latest
+    steps:
+      - id: cache
+        uses: actions/cache@v4
+        with:
+          path: nomad-device-fake
+          key: nomad-device-fake-${{ env.PLUGIN_FROM }}-${{ hashFiles('.github/workflows/nomad.yml') }}
+      - if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/checkout@v7
+        with:
+          repository: hashicorp/nomad
+          ref: ${{ env.PLUGIN_FROM }}
+          path: nomad-src
+      - if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: nomad-src/go.mod
+          cache: false
+      - if: steps.cache.outputs.cache-hit != 'true'
+        name: Build the example device plugin as nvidia/gpu
+        working-directory: nomad-src/plugins/device/cmd/example
+        run: |
+          sed -i -E 's/^(\s*vendor\s*=\s*)"nomad"/\1"nvidia"/; s/^(\s*deviceType\s*=\s*)"file"/\1"gpu"/; s/^(\s*deviceName\s*=\s*)"mock"/\1"Fake RTX"/' device.go
+          grep -Eq '^\s*vendor\s*=\s*"nvidia"' device.go && grep -Eq '^\s*deviceType\s*=\s*"gpu"' device.go || { echo "the plugin's constants moved"; exit 1; }
+          CGO_ENABLED=0 go build -trimpath -o "$GITHUB_WORKSPACE/nomad-device-fake" ./cmd
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nomad-device-fake
+          path: nomad-device-fake
+
+  nomad:
+    needs: [versions, plugin]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        nomad: ${{ fromJSON(needs.versions.outputs.list) }}
+    name: nomad ${{ matrix.nomad }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: actions/download-artifact@v4
+        with:
+          name: nomad-device-fake
+          path: bin
+      - name: Nomad ${{ matrix.nomad }}, checksum verified
+        env:
+          V: ${{ matrix.nomad }}
+        run: |
+          cd bin
+          curl -fsSLO "https://releases.hashicorp.com/nomad/$V/nomad_${V}_linux_amd64.zip"
+          curl -fsSLO "https://releases.hashicorp.com/nomad/$V/nomad_${V}_SHA256SUMS"
+          grep "nomad_${V}_linux_amd64.zip" "nomad_${V}_SHA256SUMS" | sha256sum -c -
+          unzip -q "nomad_${V}_linux_amd64.zip" && chmod +x nomad-device-fake nomad && ./nomad version
+      - name: promtool
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download --repo prometheus/prometheus --pattern 'prometheus-*.linux-amd64.tar.gz' --dir /tmp
+          tar -xzf /tmp/prometheus-*.linux-amd64.tar.gz -C /tmp --strip-components=1 --wildcards '*/promtool'
+          /tmp/promtool --version
+      - run: docker pull busybox:1.36
+      - name: Build gpuledger and the integration test
+        run: |
+          CGO_ENABLED=0 go build -o bin/gpuledger ./cmd/gpuledger
+          go test -tags integration -c -o bin/it.test ./integration
+      - name: Run against Nomad ${{ matrix.nomad }}
+        working-directory: integration
+        run: |
+          sudo NOMAD_BIN="$GITHUB_WORKSPACE/bin/nomad" \
+               GPULEDGER_DEVICE_PLUGIN="$GITHUB_WORKSPACE/bin/nomad-device-fake" \
+               GPULEDGER_BIN="$GITHUB_WORKSPACE/bin/gpuledger" \
+               PROMTOOL=/tmp/promtool \
+               "$GITHUB_WORKSPACE/bin/it.test" -test.v -test.count=1 -test.timeout=15m

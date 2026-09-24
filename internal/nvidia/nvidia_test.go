@@ -77,3 +77,34 @@ func TestDriverUnavailableIsAnError(t *testing.T) {
 		t.Fatalf("empty output is no GPUs, not an error: %v", err)
 	}
 }
+
+// A process_name can carry the whole command line; a path in an argument must not leak
+// into the ledger as if it were the binary.
+func TestProcessNameIsTheBinaryEvenWhenArgumentsHoldPaths(t *testing.T) {
+	ps, err := ParseProcesses("GPU-a, 1, 10, ffmpeg -i /data/clients/acme/match.mp4\nGPU-a, 2, 10, /usr/bin/HandBrakeCLI --input /mnt/secret/x.mkv\nGPU-a, 3, 10, /usr/local/bin/python3\n")
+	if err != nil || len(ps) != 3 {
+		t.Fatalf("%v %+v", err, ps)
+	}
+	for i, want := range []string{"ffmpeg", "HandBrakeCLI", "python3"} {
+		if ps[i].Name != want {
+			t.Fatalf("process %d: got %q, want %q", i, ps[i].Name, want)
+		}
+	}
+}
+
+func TestQueryFailuresAreErrorsWithWhatWasRead(t *testing.T) {
+	if _, _, err := Query(context.Background(), fake{fail: true}); err == nil {
+		t.Fatal("a driver that cannot be run is an error")
+	}
+	if _, _, err := Query(context.Background(), fake{gpu: "0, GPU-a, L4"}); err == nil {
+		t.Fatal("a short query-gpu row is an error, not a GPU with zeroes")
+	}
+	gpus, procs, err := Query(context.Background(), fake{gpu: "0, GPU-a, L4, 00000000:01:00.0, [N/A], 23034, [Not Supported], 0, 40, 27.5, 0, 0\n"})
+	if err != nil || len(gpus) != 1 || gpus[0].MemoryUsedMiB != 0 || gpus[0].PowerW != 27.5 || len(procs) != 0 {
+		t.Fatalf("%v %+v %+v", err, gpus, procs)
+	}
+	gpus, _, err = Query(context.Background(), NewRunner("../../testdata/fake-nvidia-smi.sh"))
+	if err != nil || len(gpus) != 2 {
+		t.Fatalf("the exec runner against the fake driver: %v %+v", err, gpus)
+	}
+}

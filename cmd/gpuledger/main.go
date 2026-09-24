@@ -78,6 +78,17 @@ func parse(args []string) (string, options, error) {
 	if err := fs.Parse(args); err != nil {
 		return "", o, err
 	}
+	if fs.NArg() > 0 {
+		return "", o, fmt.Errorf("unexpected argument %q: the command comes first, then its flags", fs.Arg(0))
+	}
+	switch o.exitOn {
+	case "", "warn", "bad", "error":
+	default:
+		return "", o, fmt.Errorf("--exit-on %q: want warn, bad or error", o.exitOn)
+	}
+	if o.interval <= 0 {
+		return "", o, fmt.Errorf("--interval %s: must be positive", o.interval)
+	}
 	if o.node == "" {
 		o.node, _ = os.Hostname()
 	}
@@ -142,10 +153,10 @@ func collect(ctx context.Context, o options) ledger.Ledger {
 			in.Errors = append(in.Errors, "nomad: "+err.Error())
 		} else if nodeID == "" {
 			in.Errors = append(in.Errors, "nomad: the agent at "+o.nomadAddr+" is not a client node")
-		} else if res, err := nc.Reservations(ctx, nodeID); err != nil {
+		} else if res, allocs, err := nc.Reservations(ctx, nodeID); err != nil {
 			in.Errors = append(in.Errors, "nomad: "+err.Error())
 		} else {
-			in.Reservations = res
+			in.Reservations, in.Allocs = res, allocs
 		}
 	}
 	return ledger.Build(in)
@@ -157,7 +168,11 @@ func policy(o options) findings.Policy {
 
 func main() {
 	cmd, o, err := parse(os.Args[1:])
+	if err == flag.ErrHelp {
+		os.Exit(0)
+	}
 	if err != nil {
+		fmt.Fprintln(os.Stderr, "gpuledger:", err)
 		os.Exit(2)
 	}
 	ctx := context.Background()
@@ -211,6 +226,17 @@ func serve(ctx context.Context, o options) {
 		defer mu.RUnlock()
 		return current
 	}
+	mux := newMux(snap, policy(o))
+	fmt.Fprintf(os.Stderr, "gpuledger %s serving on %s (refresh %s)\n", version.Version, o.listen, o.interval)
+	if err := http.ListenAndServe(o.listen, mux); err != nil {
+		fmt.Fprintln(os.Stderr, "gpuledger:", err)
+		os.Exit(1)
+	}
+}
+
+// newMux serves the snapshot: /metrics, /ledger, /findings, and /healthz, which is 503
+// with the failing sources named while any source is down.
+func newMux(snap func() ledger.Ledger, p findings.Policy) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/metrics", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
@@ -223,18 +249,16 @@ func serve(ctx context.Context, o options) {
 	mux.HandleFunc("/findings", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		l := snap()
-		fs := findings.Evaluate(l, policy(o))
+		fs := findings.Evaluate(l, p)
 		json.NewEncoder(w).Encode(map[string]any{"node": l.Node, "at": l.At, "findings": fs, "worst": findings.Worst(fs)})
 	})
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
-		if len(snap().Errors) > 0 {
+		if errs := snap().Errors; len(errs) > 0 {
 			w.WriteHeader(503)
+			fmt.Fprintln(w, strings.Join(errs, "\n"))
+			return
 		}
 		fmt.Fprintln(w, "ok")
 	})
-	fmt.Fprintf(os.Stderr, "gpuledger %s serving on %s (refresh %s)\n", version.Version, o.listen, o.interval)
-	if err := http.ListenAndServe(o.listen, mux); err != nil {
-		fmt.Fprintln(os.Stderr, "gpuledger:", err)
-		os.Exit(1)
-	}
+	return mux
 }

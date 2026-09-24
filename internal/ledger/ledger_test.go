@@ -103,3 +103,49 @@ func TestAnUnknownContainerIdStillCountsAsDocker(t *testing.T) {
 		t.Fatalf("%+v", l.Entries[0].Tenants[0])
 	}
 }
+
+// Containers that hold a GPU without a process come from a map; the ledger must not
+// inherit its random order, or the table and the metrics reshuffle on every refresh.
+func TestTenantsWithoutProcessesHaveAStableOrder(t *testing.T) {
+	in := Inputs{Node: "gpud", GPUs: []nvidia.GPU{{Index: 0, UUID: uA}}, Containers: map[string]containers.Container{}}
+	for _, n := range []string{"e", "b", "d", "a", "c"} {
+		id := repeat(n, 64)
+		in.Containers[id] = containers.Container{ID: id, Name: "worker-" + n, GPUs: []string{uA}}
+	}
+	for i := 0; i < 20; i++ {
+		got := ""
+		for _, t := range Build(in).Entries[0].Tenants {
+			got += t.Container + " "
+		}
+		if got != "worker-a worker-b worker-c worker-d worker-e " {
+			t.Fatalf("run %d: %q", i, got)
+		}
+	}
+}
+
+// Nomad answers the node's allocations filtered by the token's namespaces, silently.
+// A container whose allocation Nomad did not return must be told apart from one Nomad
+// returned without this GPU — only the second is known to be unreserved.
+func TestAllocVisibilityIsRecorded(t *testing.T) {
+	in := inputs()
+	if l := Build(in); l.NomadRead {
+		t.Fatal("no Allocs → Nomad was not read")
+	}
+	in.Allocs = map[string]string{"77777777-0000-0000-0000-000000000000": "default"}
+	in.Reservations = in.Reservations[1:]
+	l := Build(in)
+	if !l.NomadRead {
+		t.Fatal("Allocs present → Nomad was read")
+	}
+	for _, tn := range l.Entries[0].Tenants {
+		if tn.Kind == KindNomad && (tn.AllocVisible || tn.Reserved) {
+			t.Fatalf("the restreamer's alloc was not returned: %+v", tn)
+		}
+	}
+	in.Allocs["3e5d2f75-1111-2222-3333-444444444444"] = "default"
+	for _, tn := range Build(in).Entries[0].Tenants {
+		if tn.Kind == KindNomad && !tn.AllocVisible {
+			t.Fatalf("returned alloc must be visible: %+v", tn)
+		}
+	}
+}

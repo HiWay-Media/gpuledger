@@ -43,7 +43,9 @@ func NewClient(addr, tokenEnv string) *Client {
 	return &Client{http: &http.Client{Timeout: 5 * time.Second}, addr: strings.TrimRight(addr, "/"), token: tok}
 }
 
-func (c *Client) get(ctx context.Context, path string, v any) error {
+// get decodes one GET. need names the ACL capability the path requires, so a 403 says
+// what the token lacks.
+func (c *Client) get(ctx context.Context, path, need string, v any) error {
 	req, _ := http.NewRequestWithContext(ctx, "GET", c.addr+path, nil)
 	if c.token != "" {
 		req.Header.Set("X-Nomad-Token", c.token)
@@ -53,6 +55,9 @@ func (c *Client) get(ctx context.Context, path string, v any) error {
 		return err
 	}
 	defer res.Body.Close()
+	if res.StatusCode == 403 {
+		return fmt.Errorf("nomad %s: HTTP 403 — the token in the variable named by --nomad-token-env needs %s", path, need)
+	}
 	if res.StatusCode != 200 {
 		return fmt.Errorf("nomad %s: HTTP %d", path, res.StatusCode)
 	}
@@ -66,7 +71,7 @@ func (c *Client) NodeID(ctx context.Context) (string, error) {
 			Client map[string]string `json:"client"`
 		} `json:"stats"`
 	}
-	if err := c.get(ctx, "/v1/agent/self", &self); err != nil {
+	if err := c.get(ctx, "/v1/agent/self", "agent:read", &self); err != nil {
 		return "", err
 	}
 	return self.Stats.Client["node_id"], nil
@@ -90,26 +95,37 @@ type allocation struct {
 	} `json:"AllocatedResources"`
 }
 
-// Reservations lists, for the node, every running allocation task that holds GPU
-// devices. Allocations without devices are skipped.
-func (c *Client) Reservations(ctx context.Context, nodeID string) ([]Reservation, error) {
-	var allocs []allocation
-	if err := c.get(ctx, "/v1/node/"+nodeID+"/allocations", &allocs); err != nil {
-		return nil, err
+// Reservations lists, for the node, every running or pending allocation task that holds
+// NVIDIA GPUs (the device plugin's vendor "nvidia", type "gpu"). Other devices and
+// allocations without devices are skipped: the join could never match them.
+//
+// allocs is every allocation returned, id → namespace, whatever its status: Nomad
+// leaves out, without an error, the allocations in namespaces the token cannot read-job.
+func (c *Client) Reservations(ctx context.Context, nodeID string) (out []Reservation, allocs map[string]string, err error) {
+	var list []allocation
+	if err := c.get(ctx, "/v1/node/"+nodeID+"/allocations", "node:read", &list); err != nil {
+		return nil, nil, err
 	}
-	var out []Reservation
-	for _, a := range allocs {
+	allocs = map[string]string{}
+	for _, a := range list {
+		ns := a.Namespace
+		if ns == "" {
+			ns = "default"
+		}
+		allocs[a.ID] = ns
+	}
+	for _, a := range list {
 		if a.ClientStatus != "running" && a.ClientStatus != "pending" {
 			continue
 		}
 		for task, t := range a.AllocatedResources.Tasks {
 			for _, d := range t.Devices {
-				if d.Type != "gpu" && !strings.Contains(strings.ToLower(d.Vendor), "nvidia") {
+				if d.Type != "gpu" || !strings.EqualFold(d.Vendor, "nvidia") {
 					continue
 				}
 				out = append(out, Reservation{AllocID: a.ID, JobID: a.JobID, TaskGroup: a.TaskGroup, Task: task, Namespace: a.Namespace, Status: a.ClientStatus, DeviceIDs: d.DeviceIDs})
 			}
 		}
 	}
-	return out, nil
+	return out, allocs, nil
 }
