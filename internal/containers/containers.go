@@ -134,7 +134,7 @@ func (c *Client) Inspect(ctx context.Context, id string) (Container, error) {
 	}
 	defer res.Body.Close()
 	if res.StatusCode != 200 {
-		return Container{}, fmt.Errorf("docker inspect %s: HTTP %d", id[:12], res.StatusCode)
+		return Container{}, fmt.Errorf("docker inspect %s: HTTP %d", short(id), res.StatusCode)
 	}
 	var in inspect
 	if err := json.NewDecoder(res.Body).Decode(&in); err != nil {
@@ -170,4 +170,11 @@ func (c *Client) List(ctx context.Context) ([]Container, error) {
 		out = append(out, ct)
 	}
 	return out, nil
+}
+
+func short(id string) string {
+	if len(id) > 12 {
+		return id[:12]
+	}
+	return id
 }

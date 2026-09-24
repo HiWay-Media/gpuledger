@@ -56,3 +56,25 @@ func TestEvaluateCoversEveryCode(t *testing.T) {
 		t.Fatal("all OK exits 0 under any policy")
 	}
 }
+
+func TestExitCodeUnderEveryPolicy(t *testing.T) {
+	at := func(l Level) []Finding { return []Finding{{Level: OK}, {Level: l}} }
+	cases := []struct {
+		policy string
+		worst  Level
+		want   int
+	}{
+		{"", ERROR, 0}, {"", BAD, 0},
+		{"warn", OK, 0}, {"warn", WARN, 1}, {"warn", BAD, 2}, {"warn", ERROR, 3},
+		{"bad", OK, 0}, {"bad", WARN, 0}, {"bad", BAD, 2}, {"bad", ERROR, 3},
+		{"error", OK, 0}, {"error", WARN, 0}, {"error", BAD, 0}, {"error", ERROR, 3},
+	}
+	for _, c := range cases {
+		if got := ExitCode(at(c.worst), c.policy); got != c.want {
+			t.Errorf("--exit-on %q at %s: got %d, want %d", c.policy, c.worst, got, c.want)
+		}
+	}
+	if ExitCode(nil, "warn") != 0 || Worst(nil) != OK {
+		t.Error("no findings is OK and exit 0")
+	}
+}

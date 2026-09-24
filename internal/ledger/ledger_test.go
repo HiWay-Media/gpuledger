@@ -103,3 +103,22 @@ func TestAnUnknownContainerIdStillCountsAsDocker(t *testing.T) {
 		t.Fatalf("%+v", l.Entries[0].Tenants[0])
 	}
 }
+
+// Containers that hold a GPU without a process come from a map; the ledger must not
+// inherit its random order, or the table and the metrics reshuffle on every refresh.
+func TestTenantsWithoutProcessesHaveAStableOrder(t *testing.T) {
+	in := Inputs{Node: "gpud", GPUs: []nvidia.GPU{{Index: 0, UUID: uA}}, Containers: map[string]containers.Container{}}
+	for _, n := range []string{"e", "b", "d", "a", "c"} {
+		id := repeat(n, 64)
+		in.Containers[id] = containers.Container{ID: id, Name: "worker-" + n, GPUs: []string{uA}}
+	}
+	for i := 0; i < 20; i++ {
+		got := ""
+		for _, t := range Build(in).Entries[0].Tenants {
+			got += t.Container + " "
+		}
+		if got != "worker-a worker-b worker-c worker-d worker-e " {
+			t.Fatalf("run %d: %q", i, got)
+		}
+	}
+}

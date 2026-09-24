@@ -131,8 +131,9 @@ func ParseGPUs(text string) ([]GPU, error) {
 	return out, nil
 }
 
-// ParseProcesses parses the query-compute-apps CSV. The process name is reduced to its
-// last path element so no argument or directory ever reaches the ledger.
+// ParseProcesses parses the query-compute-apps CSV. The process name is cut at the first
+// blank, then reduced to its last path element, so no argument or directory ever
+// reaches the ledger — in that order, or a path inside an argument would survive.
 func ParseProcesses(text string) ([]Process, error) {
 	rs, err := rows(text)
 	if err != nil {
@@ -144,11 +145,11 @@ func ParseProcesses(text string) ([]Process, error) {
 			continue
 		}
 		name := strings.TrimSpace(r[3])
-		if i := strings.LastIndex(name, "/"); i >= 0 {
-			name = name[i+1:]
-		}
 		if i := strings.IndexAny(name, " \t"); i >= 0 {
 			name = name[:i]
+		}
+		if i := strings.LastIndex(name, "/"); i >= 0 {
+			name = name[i+1:]
 		}
 		out = append(out, Process{GPUUUID: strings.TrimSpace(r[0]), PID: atoi(r[1]), UsedMemoryMiB: atoi(r[2]), Name: name})
 	}

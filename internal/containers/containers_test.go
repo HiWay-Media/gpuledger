@@ -2,8 +2,10 @@ package containers
 
 import (
 	"context"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -71,5 +73,43 @@ func TestClientListAndLabels(t *testing.T) {
 	}
 	if _, err := c.Inspect(context.Background(), strings.Repeat("c", 64)); err == nil {
 		t.Fatal("unknown container must error")
+	}
+}
+
+func TestInspectOfAShortIDFailsWithoutPanicking(t *testing.T) {
+	srv := httptest.NewServer(http.NotFoundHandler())
+	defer srv.Close()
+	if _, err := NewClient(srv.URL).Inspect(context.Background(), "abc"); err == nil || !strings.Contains(err.Error(), "HTTP 404") {
+		t.Fatalf("want an HTTP 404 error, got %v", err)
+	}
+}
+
+// The default endpoint on every node is the unix socket; the test serves the Engine API
+// on one so that transport is exercised, not only the http:// form.
+func TestClientOverTheUnixSocket(t *testing.T) {
+	sock := filepath.Join(t.TempDir(), "docker.sock")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Skip("unix sockets unavailable:", err)
+	}
+	id := strings.Repeat("c", 64)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/containers/json", func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte(`[{"Id":"` + id + `"},{"Id":"gone"}]`)) })
+	mux.HandleFunc("/containers/"+id+"/json", func(w http.ResponseWriter, _ *http.Request) {
+		w.Write([]byte(`{"Id":"` + id + `","Name":"/enc","Config":{"Image":"x","Labels":{"com.hashicorp.nomad.alloc_id":"a1","other":"dropped"},"Env":["SECRET=1","NVIDIA_VISIBLE_DEVICES=GPU-1,GPU-2"]},"HostConfig":{}}`))
+	})
+	srv := &http.Server{Handler: mux}
+	go srv.Serve(ln)
+	defer srv.Close()
+	list, err := NewClient("unix://" + sock).List(context.Background())
+	if err != nil || len(list) != 1 {
+		t.Fatalf("a container that vanished between list and inspect is skipped: %v %+v", err, list)
+	}
+	c := list[0]
+	if c.Name != "enc" || c.AllocID != "a1" || len(c.GPUs) != 2 || c.Labels["other"] != "" || len(c.Labels) != 1 {
+		t.Fatalf("%+v", c)
+	}
+	if _, err := NewClient("unix://" + filepath.Join(t.TempDir(), "none.sock")).List(context.Background()); err == nil {
+		t.Fatal("a missing socket is an error")
 	}
 }

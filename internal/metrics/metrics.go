@@ -22,48 +22,71 @@ func labels(kv ...string) string {
 	return "{" + strings.Join(parts, ",") + "}"
 }
 
+// family is one metric: its help text and its samples, written together because the
+// exposition format wants a family's lines contiguous.
+type family struct {
+	name, help string
+	samples    []string
+}
+
+func (f *family) add(labels string, value any) {
+	f.samples = append(f.samples, fmt.Sprintf("%s%s %v", f.name, labels, value))
+}
+
 // Render writes every gauge; labels never carry a command, an env value or a path.
 func Render(l ledger.Ledger) string {
-	var b strings.Builder
-	w := func(format string, a ...any) { fmt.Fprintf(&b, format, a...) }
-	w("# HELP gpuledger_up 1 when every source was read, 0 when one failed.\n# TYPE gpuledger_up gauge\n")
-	up := 1
+	fam := func(name, help string) *family { return &family{name: name, help: help} }
+	up := fam("gpuledger_up", "1 when every source was read, 0 when one failed.")
+	info := fam("gpuledger_gpu_info", "Static identity of the GPU.")
+	util := fam("gpuledger_gpu_utilization_percent", "GPU utilisation as the driver reports it.")
+	used := fam("gpuledger_gpu_memory_used_bytes", "Memory in use on the GPU.")
+	total := fam("gpuledger_gpu_memory_total_bytes", "Memory on the GPU.")
+	temp := fam("gpuledger_gpu_temperature_celsius", "GPU temperature.")
+	power := fam("gpuledger_gpu_power_watts", "GPU power draw.")
+	enc := fam("gpuledger_gpu_encoder_sessions", "Active NVENC sessions.")
+	tenants := fam("gpuledger_gpu_tenants", "Distinct holders of the GPU (containers or host).")
+	reservations := fam("gpuledger_gpu_reservations", "Nomad allocations the GPU is allocated to.")
+	tmem := fam("gpuledger_tenant_memory_bytes", "Memory a tenant holds on a GPU.")
+	tres := fam("gpuledger_tenant_reserved", "1 when Nomad allocated the GPU to the tenant's allocation.")
+
+	upv := 1
 	if len(l.Errors) > 0 {
-		up = 0
+		upv = 0
 	}
-	w("gpuledger_up%s %d\n", labels("node", l.Node), up)
-	w("# HELP gpuledger_gpu_info Static identity of the GPU.\n# TYPE gpuledger_gpu_info gauge\n")
-	w("# HELP gpuledger_gpu_utilization_percent GPU utilisation as the driver reports it.\n# TYPE gpuledger_gpu_utilization_percent gauge\n")
-	w("# HELP gpuledger_gpu_memory_used_bytes Memory in use on the GPU.\n# TYPE gpuledger_gpu_memory_used_bytes gauge\n")
-	w("# HELP gpuledger_gpu_memory_total_bytes Memory on the GPU.\n# TYPE gpuledger_gpu_memory_total_bytes gauge\n")
-	w("# HELP gpuledger_gpu_temperature_celsius GPU temperature.\n# TYPE gpuledger_gpu_temperature_celsius gauge\n")
-	w("# HELP gpuledger_gpu_power_watts GPU power draw.\n# TYPE gpuledger_gpu_power_watts gauge\n")
-	w("# HELP gpuledger_gpu_encoder_sessions Active NVENC sessions.\n# TYPE gpuledger_gpu_encoder_sessions gauge\n")
-	w("# HELP gpuledger_gpu_tenants Distinct holders of the GPU (containers or host).\n# TYPE gpuledger_gpu_tenants gauge\n")
-	w("# HELP gpuledger_gpu_reservations Nomad allocations the GPU is allocated to.\n# TYPE gpuledger_gpu_reservations gauge\n")
-	w("# HELP gpuledger_tenant_memory_bytes Memory a tenant holds on a GPU.\n# TYPE gpuledger_tenant_memory_bytes gauge\n")
-	w("# HELP gpuledger_tenant_reserved 1 when Nomad allocated the GPU to the tenant's allocation.\n# TYPE gpuledger_tenant_reserved gauge\n")
+	up.add(labels("node", l.Node), upv)
 	for _, e := range l.Entries {
 		g := labels("node", l.Node, "gpu", fmt.Sprint(e.Index), "uuid", e.UUID)
-		w("gpuledger_gpu_info%s 1\n", labels("node", l.Node, "gpu", fmt.Sprint(e.Index), "uuid", e.UUID, "model", e.Model, "bus", e.BusID))
-		w("gpuledger_gpu_utilization_percent%s %d\n", g, e.UtilizationPct)
-		w("gpuledger_gpu_memory_used_bytes%s %d\n", g, int64(e.MemoryUsedMiB)<<20)
-		w("gpuledger_gpu_memory_total_bytes%s %d\n", g, int64(e.MemoryTotalMiB)<<20)
-		w("gpuledger_gpu_temperature_celsius%s %d\n", g, e.TemperatureC)
-		w("gpuledger_gpu_power_watts%s %g\n", g, e.PowerW)
-		w("gpuledger_gpu_encoder_sessions%s %d\n", g, e.EncoderSessions)
-		w("gpuledger_gpu_tenants%s %d\n", g, len(e.Tenants))
-		w("gpuledger_gpu_reservations%s %d\n", g, len(e.Reservations))
+		info.add(labels("node", l.Node, "gpu", fmt.Sprint(e.Index), "uuid", e.UUID, "model", e.Model, "bus", e.BusID), 1)
+		util.add(g, e.UtilizationPct)
+		used.add(g, int64(e.MemoryUsedMiB)<<20)
+		total.add(g, int64(e.MemoryTotalMiB)<<20)
+		temp.add(g, e.TemperatureC)
+		power.add(g, fmt.Sprintf("%g", e.PowerW))
+		enc.add(g, e.EncoderSessions)
+		tenants.add(g, len(e.Tenants))
+		reservations.add(g, len(e.Reservations))
 		ts := append([]ledger.Tenant(nil), e.Tenants...)
-		sort.SliceStable(ts, func(i, j int) bool { return ts[i].Container < ts[j].Container })
+		sort.SliceStable(ts, func(i, j int) bool {
+			if ts[i].Container != ts[j].Container {
+				return ts[i].Container < ts[j].Container
+			}
+			return ts[i].ContainerID < ts[j].ContainerID
+		})
 		for _, t := range ts {
-			tl := labels("node", l.Node, "gpu", fmt.Sprint(e.Index), "uuid", e.UUID, "kind", string(t.Kind), "container", t.Container, "job", t.JobName, "task", t.TaskName, "alloc", t.AllocID, "namespace", t.Namespace)
-			w("gpuledger_tenant_memory_bytes%s %d\n", tl, int64(t.UsedMemoryMiB)<<20)
+			tl := labels("node", l.Node, "gpu", fmt.Sprint(e.Index), "uuid", e.UUID, "kind", string(t.Kind), "container", t.Container, "container_id", t.ContainerID, "job", t.JobName, "task", t.TaskName, "alloc", t.AllocID, "namespace", t.Namespace)
+			tmem.add(tl, int64(t.UsedMemoryMiB)<<20)
 			r := 0
 			if t.Reserved {
 				r = 1
 			}
-			w("gpuledger_tenant_reserved%s %d\n", tl, r)
+			tres.add(tl, r)
+		}
+	}
+	var b strings.Builder
+	for _, f := range []*family{up, info, util, used, total, temp, power, enc, tenants, reservations, tmem, tres} {
+		fmt.Fprintf(&b, "# HELP %s %s\n# TYPE %s gauge\n", f.name, f.help, f.name)
+		for _, s := range f.samples {
+			b.WriteString(s + "\n")
 		}
 	}
 	return b.String()

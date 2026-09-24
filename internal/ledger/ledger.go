@@ -156,7 +156,17 @@ func Build(in Inputs) Ledger {
 		for _, k := range order {
 			e.Tenants = append(e.Tenants, *byKey[k])
 		}
-		sort.SliceStable(e.Tenants, func(i, j int) bool { return e.Tenants[i].UsedMemoryMiB > e.Tenants[j].UsedMemoryMiB })
+		// Most memory first; ties by name then id, so the order never depends on a map.
+		sort.SliceStable(e.Tenants, func(i, j int) bool {
+			a, b := e.Tenants[i], e.Tenants[j]
+			if a.UsedMemoryMiB != b.UsedMemoryMiB {
+				return a.UsedMemoryMiB > b.UsedMemoryMiB
+			}
+			if a.Container != b.Container {
+				return a.Container < b.Container
+			}
+			return a.ContainerID < b.ContainerID
+		})
 		l.Entries = append(l.Entries, e)
 	}
 	sort.Slice(l.Entries, func(i, j int) bool { return l.Entries[i].Index < l.Entries[j].Index })
