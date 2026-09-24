@@ -18,7 +18,8 @@ const REPO = 'https://github.com/hiway-media/gpuledger'
 const BLOB = `${REPO}/blob/main`
 const SITE = 'https://hiway-media.github.io/gpuledger/'
 
-const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'))
+// The one version lives in VERSION; package.json here is tooling only.
+const pkg = { name: 'gpuledger', version: readFileSync(join(ROOT, 'VERSION'), 'utf8').trim() }
 const md = readFileSync(join(ROOT, 'README.md'), 'utf8')
 
 // One logo, three consumers: the favicon (inlined), the header, the hero.
@@ -321,14 +322,14 @@ ${nav.map((s) => `      <a href="#${slug(s.heading)}">${esc(s.heading)}</a>`).jo
 <main class="wrap" id="top">
   <div class="hero">
     ${mark(66, 'hero-mark')}
-    <span class="eyebrow">CLI for Claude Code &amp; Codex · v${esc(pkg.version)}</span>
+    <span class="eyebrow">Nomad · NVIDIA · one static binary · v${esc(pkg.version)}</span>
     <h1>${esc(name)}</h1>
     ${tagline ? `<p class="tagline">${esc(tagline)}</p>` : ''}
     <div class="lede">${marked.parseInline(lede.replace(/\n/g, ' '))}</div>
     <div class="cta">
       <a class="primary" href="#install">Install</a>
       <a href="${REPO}">Source</a>
-      <a href="https://www.npmjs.com/package/${pkg.name}">npm</a>
+      <a href="${REPO}/releases">releases</a>
     </div>
     <div class="note">${marked.parse(after)}</div>
   </div>
