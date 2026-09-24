@@ -18,14 +18,14 @@ func codes(fs []Finding) string {
 }
 
 func TestEvaluateCoversEveryCode(t *testing.T) {
-	l := ledger.Ledger{Node: "gpud", Errors: []string{"nomad: HTTP 500"}, Entries: []ledger.Entry{
+	l := ledger.Ledger{Node: "gpud", NomadRead: true, Errors: []string{"nomad: HTTP 500"}, Entries: []ledger.Entry{
 		{GPU: nvidia.GPU{Index: 0, UUID: "GPU-aaaa", EncoderSessions: 9, TemperatureC: 90}, Reservations: []nomad.Reservation{{AllocID: "r1", JobID: "j", Task: "t", DeviceIDs: []string{"GPU-aaaa"}}}, Tenants: []ledger.Tenant{
 			{Kind: ledger.KindNomad, JobName: "j", TaskName: "t", AllocID: "r1", Reserved: true, Container: "c1"},
 			{Kind: ledger.KindDocker, Container: "rogue", Image: "img", PIDs: []int{1}},
 		}},
 		{GPU: nvidia.GPU{Index: 1, UUID: "GPU-bbbb"}, Reservations: []nomad.Reservation{{AllocID: "r2", JobID: "j2", Task: "t2"}}},
 		{GPU: nvidia.GPU{Index: 2, UUID: "GPU-cccc", MemoryTotalMiB: 8192}},
-		{GPU: nvidia.GPU{Index: 3, UUID: "GPU-dddd"}, Tenants: []ledger.Tenant{{Kind: ledger.KindNomad, JobName: "j3", TaskName: "t3", AllocID: "r3", Reserved: false, Container: "c3"}}},
+		{GPU: nvidia.GPU{Index: 3, UUID: "GPU-dddd"}, Tenants: []ledger.Tenant{{Kind: ledger.KindNomad, JobName: "j3", TaskName: "t3", AllocID: "r3", Reserved: false, AllocVisible: true, Container: "c3"}}},
 		{GPU: nvidia.GPU{Index: 4, UUID: "GPU-eeee", UtilizationPct: 50}, Tenants: []ledger.Tenant{{Kind: ledger.KindNomad, JobName: "j4", TaskName: "t4", AllocID: "r4", Reserved: true, Container: "c4"}}},
 	}}
 	fs := Evaluate(l, Default)
@@ -76,5 +76,29 @@ func TestExitCodeUnderEveryPolicy(t *testing.T) {
 	}
 	if ExitCode(nil, "warn") != 0 || Worst(nil) != OK {
 		t.Error("no findings is OK and exit 0")
+	}
+}
+
+// A Nomad tenant is judged unreserved only when Nomad was read and returned its
+// allocation; otherwise the ledger says it cannot tell, and why.
+func TestUnreservedNeedsTheAllocationToBeVisible(t *testing.T) {
+	tenant := ledger.Tenant{Kind: ledger.KindNomad, JobName: "enc", TaskName: "enc", AllocID: "abcdef12-0000", Namespace: "video", Container: "enc-abcdef12"}
+	entry := func(tn ledger.Tenant) []ledger.Entry {
+		return []ledger.Entry{{GPU: nvidia.GPU{Index: 0, UUID: "GPU-aaaa"}, Tenants: []ledger.Tenant{tn}}}
+	}
+	got := codes(Evaluate(ledger.Ledger{Node: "n", NomadRead: true, Entries: entry(tenant)}, Default))
+	if got != "ERROR:source-unavailable" {
+		t.Fatalf("alloc not returned: %s", got)
+	}
+	fs := Evaluate(ledger.Ledger{Node: "n", NomadRead: true, Entries: entry(tenant)}, Default)
+	if !strings.Contains(fs[0].Message, "read-job") || !strings.Contains(fs[0].Message, `"video"`) || !strings.Contains(fs[0].Message, "abcdef12") {
+		t.Fatalf("the message must name the namespace and the capability: %s", fs[0].Message)
+	}
+	if got := codes(Evaluate(ledger.Ledger{Node: "n", Entries: entry(tenant)}, Default)); got != "" {
+		t.Fatalf("Nomad not read: no verdict on reservation, got %s", got)
+	}
+	tenant.AllocVisible = true
+	if got := codes(Evaluate(ledger.Ledger{Node: "n", NomadRead: true, Entries: entry(tenant)}, Default)); got != "BAD:unreserved-tenant" {
+		t.Fatalf("alloc returned without this GPU: %s", got)
 	}
 }

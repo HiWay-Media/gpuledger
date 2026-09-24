@@ -122,3 +122,30 @@ func TestTenantsWithoutProcessesHaveAStableOrder(t *testing.T) {
 		}
 	}
 }
+
+// Nomad answers the node's allocations filtered by the token's namespaces, silently.
+// A container whose allocation Nomad did not return must be told apart from one Nomad
+// returned without this GPU — only the second is known to be unreserved.
+func TestAllocVisibilityIsRecorded(t *testing.T) {
+	in := inputs()
+	if l := Build(in); l.NomadRead {
+		t.Fatal("no Allocs → Nomad was not read")
+	}
+	in.Allocs = map[string]string{"77777777-0000-0000-0000-000000000000": "default"}
+	in.Reservations = in.Reservations[1:]
+	l := Build(in)
+	if !l.NomadRead {
+		t.Fatal("Allocs present → Nomad was read")
+	}
+	for _, tn := range l.Entries[0].Tenants {
+		if tn.Kind == KindNomad && (tn.AllocVisible || tn.Reserved) {
+			t.Fatalf("the restreamer's alloc was not returned: %+v", tn)
+		}
+	}
+	in.Allocs["3e5d2f75-1111-2222-3333-444444444444"] = "default"
+	for _, tn := range Build(in).Entries[0].Tenants {
+		if tn.Kind == KindNomad && !tn.AllocVisible {
+			t.Fatalf("returned alloc must be visible: %+v", tn)
+		}
+	}
+}

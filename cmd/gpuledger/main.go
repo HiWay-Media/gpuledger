@@ -153,10 +153,10 @@ func collect(ctx context.Context, o options) ledger.Ledger {
 			in.Errors = append(in.Errors, "nomad: "+err.Error())
 		} else if nodeID == "" {
 			in.Errors = append(in.Errors, "nomad: the agent at "+o.nomadAddr+" is not a client node")
-		} else if res, err := nc.Reservations(ctx, nodeID); err != nil {
+		} else if res, allocs, err := nc.Reservations(ctx, nodeID); err != nil {
 			in.Errors = append(in.Errors, "nomad: "+err.Error())
 		} else {
-			in.Reservations = res
+			in.Reservations, in.Allocs = res, allocs
 		}
 	}
 	return ledger.Build(in)

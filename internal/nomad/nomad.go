@@ -98,13 +98,23 @@ type allocation struct {
 // Reservations lists, for the node, every running or pending allocation task that holds
 // NVIDIA GPUs (the device plugin's vendor "nvidia", type "gpu"). Other devices and
 // allocations without devices are skipped: the join could never match them.
-func (c *Client) Reservations(ctx context.Context, nodeID string) ([]Reservation, error) {
-	var allocs []allocation
-	if err := c.get(ctx, "/v1/node/"+nodeID+"/allocations", "node:read", &allocs); err != nil {
-		return nil, err
+//
+// allocs is every allocation returned, id → namespace, whatever its status: Nomad
+// leaves out, without an error, the allocations in namespaces the token cannot read-job.
+func (c *Client) Reservations(ctx context.Context, nodeID string) (out []Reservation, allocs map[string]string, err error) {
+	var list []allocation
+	if err := c.get(ctx, "/v1/node/"+nodeID+"/allocations", "node:read", &list); err != nil {
+		return nil, nil, err
 	}
-	var out []Reservation
-	for _, a := range allocs {
+	allocs = map[string]string{}
+	for _, a := range list {
+		ns := a.Namespace
+		if ns == "" {
+			ns = "default"
+		}
+		allocs[a.ID] = ns
+	}
+	for _, a := range list {
 		if a.ClientStatus != "running" && a.ClientStatus != "pending" {
 			continue
 		}
@@ -117,5 +127,5 @@ func (c *Client) Reservations(ctx context.Context, nodeID string) ([]Reservation
 			}
 		}
 	}
-	return out, nil
+	return out, allocs, nil
 }

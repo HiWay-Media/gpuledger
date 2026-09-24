@@ -42,6 +42,21 @@ type agent struct {
 	t    *testing.T
 	addr string
 	mgmt string // management token, for setup only; gpuledger never gets it
+	// labels is false on Nomad 1.0, whose docker driver has no extra_labels: the
+	// containers then carry the alloc id only, and job, task and namespace are empty.
+	labels bool
+}
+
+// extraLabels is true from Nomad 1.1, where the docker driver took extra_labels.
+func extraLabels(t *testing.T, nomadBin string) bool {
+	out, err := exec.Command(nomadBin, "version").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var major, minor int
+	fmt.Sscanf(strings.TrimPrefix(strings.Fields(string(out))[1], "v"), "%d.%d", &major, &minor)
+	t.Logf("%s", bytes.TrimSpace(out))
+	return major > 1 || minor >= 1
 }
 
 func (a *agent) do(method, path, token string, body any, out any) (int, error) {
@@ -117,6 +132,16 @@ func start(t *testing.T) *agent {
 		t.Fatal(err)
 	}
 	os.WriteFile(filepath.Join(plugins, "nomad-device-fake"), b, 0o755)
+	labels := extraLabels(t, nomadBin)
+	docker := `
+plugin "docker" {
+  config {
+    extra_labels = ["job_name", "task_group_name", "task_name", "namespace", "node_name"]
+  }
+}`
+	if !labels {
+		docker = ""
+	}
 	port := freePort(t)
 	cfg := fmt.Sprintf(`
 data_dir   = %q
@@ -129,12 +154,8 @@ plugin "nomad-device-fake" {
     list_period = "1s"
   }
 }
-plugin "docker" {
-  config {
-    extra_labels = ["job_name", "task_group_name", "task_name", "namespace", "node_name"]
-  }
-}
-`, filepath.Join(dir, "data"), plugins, port, freePort(t), freePort(t), devices)
+%s
+`, filepath.Join(dir, "data"), plugins, port, freePort(t), freePort(t), devices, docker)
 	os.WriteFile(filepath.Join(dir, "agent.hcl"), []byte(cfg), 0o644)
 	log, _ := os.Create(filepath.Join(dir, "agent.log"))
 	cmd := exec.Command(nomadBin, "agent", "-dev", "-config", filepath.Join(dir, "agent.hcl"))
@@ -159,7 +180,7 @@ plugin "docker" {
 			t.Logf("agent log (tail):\n%s", b)
 		}
 	})
-	a := &agent{t: t, addr: fmt.Sprintf("http://127.0.0.1:%d", port)}
+	a := &agent{t: t, addr: fmt.Sprintf("http://127.0.0.1:%d", port), labels: labels}
 	var boot struct{ SecretID string }
 	eventually(t, "ACL bootstrap", 60*time.Second, func() (bool, string) {
 		_, err := a.do("POST", "/v1/acl/bootstrap", "", nil, &boot)
@@ -271,8 +292,13 @@ func TestAgainstARealNomad(t *testing.T) {
 	a := start(t)
 	a.must("POST", "/v1/namespace/video", map[string]any{"Name": "video"}, nil)
 
-	// The token gpuledger gets: the least the README says it needs.
+	// The token gpuledger gets: the least the README says it needs. Without read-job
+	// on a namespace, Nomad leaves that namespace's allocations out of the node's list
+	// without an error — noNS proves gpuledger says so instead of calling them unreserved.
 	minimal := a.token("gpuledger", `agent { policy = "read" }
+node { policy = "read" }
+namespace "*" { capabilities = ["read-job"] }`)
+	noNS := a.token("no-namespace", `agent { policy = "read" }
 node { policy = "read" }`)
 	agentOnly := a.token("agent-only", `agent { policy = "read" }`)
 
@@ -341,10 +367,11 @@ node { policy = "read" }`)
 		return out
 	}
 
-	var check struct {
+	type report struct {
 		Worst    string
 		Findings []struct{ Level, Code, GPU, Message string }
 	}
+	var check report
 	out := gl(minimal, "check", "--json")
 	if err := json.Unmarshal(out, &check); err != nil {
 		t.Fatalf("%v\n%s", err, out)
@@ -395,8 +422,10 @@ node { policy = "read" }`)
 		case encGPU:
 			if len(e.Reservations) != 1 || e.Reservations[0].AllocID != enc.ID || len(e.Tenants) != 1 {
 				t.Errorf("enc GPU: %+v", e)
-			} else if tn := e.Tenants[0]; tn.Kind != "nomad" || !tn.Reserved || tn.AllocID != enc.ID || tn.JobName != "enc" || tn.TaskName != "enc" || tn.Namespace != "default" || tn.Processes[0] != "ffmpeg" {
+			} else if tn := e.Tenants[0]; tn.Kind != "nomad" || !tn.Reserved || tn.AllocID != enc.ID || tn.Processes[0] != "ffmpeg" {
 				t.Errorf("enc tenant: %+v", tn)
+			} else if a.labels && (tn.JobName != "enc" || tn.TaskName != "enc" || tn.Namespace != "default") {
+				t.Errorf("enc tenant's extra labels: %+v", tn)
 			}
 		case idleGPU:
 			if len(e.Reservations) != 1 || e.Reservations[0].AllocID != idle.ID || e.Reservations[0].Namespace != "video" || len(e.Tenants) != 0 {
@@ -407,6 +436,26 @@ node { policy = "read" }`)
 				t.Errorf("free GPU: %+v", e)
 			}
 		}
+	}
+
+	// No read-job: enc's allocation is not returned. The ledger must say it cannot tell,
+	// never call the task unreserved.
+	var partial report
+	out = gl(noNS, "check", "--json")
+	if err := json.Unmarshal(out, &partial); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	found := false
+	for _, f := range partial.Findings {
+		if f.Code == "unreserved-tenant" {
+			t.Errorf("an allocation Nomad did not return is not unreserved: %+v", f)
+		}
+		if f.Code == "source-unavailable" && strings.Contains(f.Message, "read-job") && strings.Contains(f.Message, enc.ID[:8]) {
+			found = true
+		}
+	}
+	if !found || partial.Worst != "ERROR" {
+		t.Errorf("a token without read-job must be an ERROR naming it:\n%s", out)
 	}
 
 	// Too little ACL is a finding that names the missing capability, not a crash.

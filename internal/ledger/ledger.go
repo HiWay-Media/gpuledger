@@ -38,6 +38,10 @@ type Tenant struct {
 	UsedMemoryMiB int      `json:"usedMemoryMiB"`
 	// Reserved is true when Nomad allocated this GPU to this tenant's allocation.
 	Reserved bool `json:"reserved"`
+	// AllocVisible is true when Nomad returned the tenant's allocation at all. Nomad
+	// filters the node's allocations by the token's namespaces without an error, so a
+	// Nomad tenant that is not reserved is only known to be unreserved when this is true.
+	AllocVisible bool `json:"allocVisible"`
 }
 
 // Entry is one GPU's row in the ledger.
@@ -52,6 +56,9 @@ type Ledger struct {
 	Node    string    `json:"node"`
 	At      time.Time `json:"at"`
 	Entries []Entry   `json:"entries"`
+	// NomadRead is true when the node's allocations were read, so reservations mean
+	// something; false with --no-nomad or when Nomad could not be asked.
+	NomadRead bool `json:"nomadRead"`
 	// Errors are the sources that could not be read; each is also a finding.
 	Errors []string `json:"errors,omitempty"`
 }
@@ -65,7 +72,10 @@ type Inputs struct {
 	ContainerOf  func(pid int) string // pid → container id, "" for a host process
 	Containers   map[string]containers.Container
 	Reservations []nomad.Reservation
-	Errors       []string
+	// Allocs is every allocation Nomad returned for the node, id → namespace; nil when
+	// Nomad was not read.
+	Allocs map[string]string
+	Errors []string
 }
 
 func gpuMatches(ids []string, g nvidia.GPU) bool {
@@ -96,7 +106,7 @@ func itoa(i int) string {
 
 // Build joins the inputs.
 func Build(in Inputs) Ledger {
-	l := Ledger{Node: in.Node, At: in.At, Errors: in.Errors}
+	l := Ledger{Node: in.Node, At: in.At, Errors: in.Errors, NomadRead: in.Allocs != nil}
 	for _, g := range in.GPUs {
 		e := Entry{GPU: g}
 		reservedAllocs := map[string]bool{}
@@ -133,7 +143,7 @@ func Build(in Inputs) Ledger {
 				if c.NomadManaged() {
 					kind = KindNomad
 				}
-				t = add("c:"+cid, Tenant{Kind: kind, Container: c.Name, ContainerID: short(cid), Image: c.Image, AllocID: c.AllocID, JobName: c.JobName, TaskName: c.TaskName, Namespace: c.Namespace, Reserved: reservedAllocs[c.AllocID]})
+				t = add("c:"+cid, Tenant{Kind: kind, Container: c.Name, ContainerID: short(cid), Image: c.Image, AllocID: c.AllocID, JobName: c.JobName, TaskName: c.TaskName, Namespace: c.Namespace, Reserved: reservedAllocs[c.AllocID], AllocVisible: visible(in.Allocs, c.AllocID)})
 			} else {
 				t = add("c:"+cid, Tenant{Kind: KindDocker, ContainerID: short(cid)})
 			}
@@ -151,7 +161,7 @@ func Build(in Inputs) Ledger {
 			if c.NomadManaged() {
 				kind = KindNomad
 			}
-			add("c:"+cid, Tenant{Kind: kind, Container: c.Name, ContainerID: short(cid), Image: c.Image, AllocID: c.AllocID, JobName: c.JobName, TaskName: c.TaskName, Namespace: c.Namespace, Reserved: reservedAllocs[c.AllocID], PIDs: []int{}, Processes: []string{}})
+			add("c:"+cid, Tenant{Kind: kind, Container: c.Name, ContainerID: short(cid), Image: c.Image, AllocID: c.AllocID, JobName: c.JobName, TaskName: c.TaskName, Namespace: c.Namespace, Reserved: reservedAllocs[c.AllocID], AllocVisible: visible(in.Allocs, c.AllocID), PIDs: []int{}, Processes: []string{}})
 		}
 		for _, k := range order {
 			e.Tenants = append(e.Tenants, *byKey[k])
@@ -178,4 +188,9 @@ func short(id string) string {
 		return id[:12]
 	}
 	return id
+}
+
+func visible(allocs map[string]string, id string) bool {
+	_, ok := allocs[id]
+	return id != "" && ok
 }

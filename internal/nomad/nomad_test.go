@@ -30,7 +30,10 @@ func TestNodeIDAndReservations(t *testing.T) {
 	if err != nil || id != "node-1" || seenToken != "s.secret" {
 		t.Fatalf("%v %q token=%q", err, id, seenToken)
 	}
-	res, err := c.Reservations(context.Background(), id)
+	res, allocs, err := c.Reservations(context.Background(), id)
+	if len(allocs) != 3 || allocs["alloc-dead"] != "default" {
+		t.Fatalf("every returned allocation is visible, whatever its status: %v", allocs)
+	}
 	if err != nil || len(res) != 1 || res[0].JobID != "gpu-gpud-restreamer" || res[0].Task != "restreamer" || res[0].DeviceIDs[0] != "GPU-fef8089b-4a2c-4d1e-9d53-1f2b3c4d5e6f" {
 		t.Fatalf("%v %+v", err, res)
 	}
@@ -65,7 +68,10 @@ func TestReservationsKeepNvidiaGPUsOnlyAndTheNamespace(t *testing.T) {
 	 {"ID":"a2","JobID":"old","ClientStatus":"lost","AllocatedResources":{"Tasks":{"t":{"Devices":[{"Vendor":"nvidia","Type":"gpu","DeviceIDs":["GPU-2"]}]}}}},
 	 {"ID":"a3","JobID":"nores","ClientStatus":"running","AllocatedResources":null}
 	]`)
-	res, err := c.Reservations(context.Background(), "n")
+	res, allocs, err := c.Reservations(context.Background(), "n")
+	if allocs["a1"] != "video" || len(allocs) != 3 {
+		t.Fatalf("visible allocations: %v", allocs)
+	}
 	if err != nil || len(res) != 1 || res[0].Namespace != "video" || res[0].Status != "pending" || res[0].DeviceIDs[0] != "GPU-1" {
 		t.Fatalf("%v %+v", err, res)
 	}
@@ -79,7 +85,7 @@ func TestForbiddenSaysWhichCapabilityIsMissing(t *testing.T) {
 		t.Fatalf("%v", err)
 	}
 	c := serveAllocs(t, 403, `Permission denied`)
-	if _, err := c.Reservations(context.Background(), "n"); err == nil || !strings.Contains(err.Error(), "node:read") {
+	if _, _, err := c.Reservations(context.Background(), "n"); err == nil || !strings.Contains(err.Error(), "node:read") {
 		t.Fatalf("%v", err)
 	}
 }
