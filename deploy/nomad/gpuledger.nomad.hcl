@@ -11,9 +11,16 @@ variable "version" {
   default = "0.1.0"
 }
 
+# "*" means every datacenter from Nomad 1.5; before 1.5 it is a literal name that
+# matches none, so name them: -var 'datacenters=["dc1"]'.
+variable "datacenters" {
+  type    = list(string)
+  default = ["*"]
+}
+
 job "gpuledger" {
   type        = "system"
-  datacenters = ["*"]
+  datacenters = var.datacenters
   namespace   = "default"
 
   # Only nodes that have GPUs — the device plugin fingerprints them.
@@ -65,7 +72,8 @@ job "gpuledger" {
       env {
         NOMAD_ADDR = "http://127.0.0.1:4646"
         # The ACL token, when the cluster has ACLs: name the variable, never inline it.
-        # NOMAD_TOKEN is read from the environment by --nomad-token-env (default NOMAD_TOKEN).
+        # NOMAD_TOKEN is read from the environment by --nomad-token-env (default NOMAD_TOKEN);
+        # the policy it needs is gpuledger.policy.hcl beside this file.
       }
 
       resources {

@@ -301,9 +301,11 @@ func TestAgainstARealNomad(t *testing.T) {
 	// The token gpuledger gets: the least the README says it needs. Without read-job
 	// on a namespace, Nomad leaves that namespace's allocations out of the node's list
 	// without an error — noNS proves gpuledger says so instead of calling them unreserved.
-	minimal := a.token("gpuledger", `agent { policy = "read" }
-node { policy = "read" }
-namespace "*" { capabilities = ["read-job"] }`)
+	policy, err := os.ReadFile("../deploy/nomad/gpuledger.policy.hcl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	minimal := a.token("gpuledger", string(policy))
 	noNS := a.token("no-namespace", `agent { policy = "read" }
 node { policy = "read" }`)
 	agentOnly := a.token("agent-only", `agent { policy = "read" }`)
@@ -472,6 +474,13 @@ node { policy = "read" }`)
 	out = gl("", "check", "--json")
 	if !bytes.Contains(out, []byte(`"source-unavailable"`)) || !bytes.Contains(out, []byte("agent:read")) {
 		t.Errorf("no token on an ACL cluster:\n%s", out)
+	}
+
+	// The system job the README tells operators to run is valid on this version.
+	validate := exec.Command(os.Getenv("NOMAD_BIN"), "job", "validate", "-var", `datacenters=["dc1"]`, "../deploy/nomad/gpuledger.nomad.hcl")
+	validate.Env = append(os.Environ(), "NOMAD_ADDR="+a.addr, "NOMAD_TOKEN="+a.mgmt)
+	if out, err := validate.CombinedOutput(); err != nil {
+		t.Errorf("nomad job validate deploy/nomad/gpuledger.nomad.hcl: %v\n%s", err, out)
 	}
 
 	if promtool := os.Getenv("PROMTOOL"); promtool != "" {
