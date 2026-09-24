@@ -120,7 +120,13 @@ func start(t *testing.T) *agent {
 	if nomadBin == "" || plugin == "" {
 		t.Skip("NOMAD_BIN and GPULEDGER_DEVICE_PLUGIN are required")
 	}
-	dir := t.TempDir()
+	// Not t.TempDir: from Nomad 1.5 the task's secrets and private dirs are tmpfs
+	// mounts that outlive the agent, and RemoveAll fails on them.
+	dir, err := os.MkdirTemp("", "gpuledger-it-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { unmountUnder(dir); os.RemoveAll(dir) })
 	devices, plugins := filepath.Join(dir, "devices"), filepath.Join(dir, "plugins")
 	os.MkdirAll(devices, 0o755)
 	os.MkdirAll(plugins, 0o755)
@@ -500,5 +506,22 @@ func metrics(t *testing.T, bin, smi, addr, token, promtool string) {
 	pc.Stdin = bytes.NewReader(body)
 	if out, err := pc.CombinedOutput(); err != nil {
 		t.Errorf("promtool check metrics: %v\n%s", err, out)
+	}
+}
+
+// unmountUnder unmounts, deepest first, whatever Nomad left mounted below dir.
+func unmountUnder(dir string) {
+	b, err := os.ReadFile("/proc/self/mounts")
+	if err != nil {
+		return
+	}
+	var points []string
+	for _, line := range strings.Split(string(b), "\n") {
+		if f := strings.Fields(line); len(f) > 1 && strings.HasPrefix(f[1], dir+"/") {
+			points = append(points, f[1])
+		}
+	}
+	for i := len(points) - 1; i >= 0; i-- {
+		exec.Command("umount", "-l", points[i]).Run()
 	}
 }
