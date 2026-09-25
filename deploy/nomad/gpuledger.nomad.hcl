@@ -8,7 +8,7 @@
 
 variable "version" {
   type    = string
-  default = "0.1.0"
+  default = "0.2.0"
 }
 
 # "*" means every datacenter from Nomad 1.5; before 1.5 it is a literal name that

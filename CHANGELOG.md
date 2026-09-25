@@ -5,14 +5,30 @@ versions follow [SemVer](https://semver.org/). Items reference their `GL-n` back
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-09-25
+
+The whole cluster, and watched: `fleet` across nodes, since-when per GPU, per-card
+thresholds from NVIDIA's own numbers, Podman, findings as metrics with alert rules and a
+dashboard, and a JSON contract. Every Nomad-dependent fact re-observed on every stable
+Nomad from 1.0.18 to 2.0.7; the driver side is still observed only against a fake
+nvidia-smi — GL-10, now in v0.3.0.
+
+**Upgrading from 0.1.0**
+- The tenant metrics' `job` label is now `nomad_job` (Prometheus had been renaming it
+  `exported_job`): queries on `gpuledger_tenant_*{job=…}` must change.
+- `--encoder-max` defaults to 0, the card's own cap — none on Quadro and datacenter
+  cards. To keep 0.1.0's behaviour, pass `--encoder-max 8`.
+- `hot` follows the driver's thermal margin and slowdown flags where the driver reports
+  them; `--temp-max` is the fallback.
+- The system job adds `--history` on a sticky ephemeral disk, and takes `datacenters` as
+  a variable.
+
 ### Added
 - The JSON contract: `"schema": 1` on `ls --json`, `check --json`, `/ledger`,
   `/findings`, `fleet --json` and the history file; the rule for what bumps it in the
   README; golden files of `ls`, `check` and `fleet ls` in `testdata/golden` that fail
   the tests on any change until regenerated on purpose. `fleet` shows each node's
   schema, and marks a node on another one in the table (GL-20).
-
-### Added
 - `gpuledger_findings{node,code,level}` — the count of each code at the last refresh,
   with a zero for every code — and `gpuledger_worst_level` (0 OK … 3 ERROR) (GL-17).
 - `deploy/prometheus/gpuledger.rules.yml`: source down, unreserved and unmanaged
@@ -24,31 +40,12 @@ versions follow [SemVer](https://semver.org/). Items reference their `GL-n` back
   matrix runs every panel's query and every rule against a real Prometheus (GL-19).
 - A test that every metric and label the rules and the dashboard name exists in
   `/metrics`.
-
-### Fixed
-- The tenant metrics' `job` label collided with the `job` Prometheus attaches to every
-  target, and was renamed `exported_job` on ingestion: the Nomad job never reached
-  Prometheus under its name. It is now `nomad_job`. Found by running the dashboard
-  against a real Prometheus.
-
-### Added
 - Podman, next to Docker: `--podman` (default: `/run/podman/podman.sock` when it exists,
   `off`, or an endpoint), `libpod-<id>` cgroups (conmon excluded), and — for Nomad's
   podman driver, which labels nothing without `extra_labels` — the allocation id from the
   container's name `<task>-<alloc id>`, trusted only when Nomad returns it; `allocFromName`
   in the ledger JSON. The Nomad matrix runs a real `nomad-driver-podman` task on every
   version (GL-16).
-
-### Changed
-- `encoder-saturated` uses each card's published cap: none on Quadro RTX 4000, L4, T4
-  and A10 ("Unrestricted" in NVIDIA's support matrix), 12 on GeForce. `--encoder-max`
-  now defaults to 0 (the card's cap); `N` applies to every card, `-1` turns it off. The
-  old default, 8, flagged a limit the farm's cards do not have (GL-15).
-- `hot` trusts the driver first: an active thermal slowdown, or 5 °C or less to the
-  card's own slowdown temperature. `--temp-max` decides only when the driver reports
-  neither.
-
-### Added
 - `internal/cards`: NVENC engines, generation and session cap per card, with the source.
 - Optional nvidia-smi queries, each on its own so a missing field never breaks the main
   one: `temperature.gpu.tlimit` and the thermal slowdown flags (`clocks_event_reasons.*`,
@@ -69,6 +66,21 @@ versions follow [SemVer](https://semver.org/). Items reference their `GL-n` back
   node or a Consul that cannot be read is a `source-unavailable` ERROR (GL-13).
 - The Nomad matrix runs `fleet` against the real node, directly and through a Consul dev
   agent with the system job's `/healthz` check.
+
+### Changed
+- `encoder-saturated` uses each card's published cap: none on Quadro RTX 4000, L4, T4
+  and A10 ("Unrestricted" in NVIDIA's support matrix), 12 on GeForce. `--encoder-max`
+  now defaults to 0 (the card's cap); `N` applies to every card, `-1` turns it off. The
+  old default, 8, flagged a limit the farm's cards do not have (GL-15).
+- `hot` trusts the driver first: an active thermal slowdown, or 5 °C or less to the
+  card's own slowdown temperature. `--temp-max` decides only when the driver reports
+  neither.
+
+### Fixed
+- The tenant metrics' `job` label collided with the `job` Prometheus attaches to every
+  target, and was renamed `exported_job` on ingestion: the Nomad job never reached
+  Prometheus under its name. It is now `nomad_job`. Found by running the dashboard
+  against a real Prometheus.
 
 ## [0.1.0] — 2026-09-24
 

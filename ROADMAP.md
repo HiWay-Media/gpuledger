@@ -11,8 +11,8 @@
 | Milestone | Phase | Progress | Open | Shipped |
 |---|---|---|---|---|
 | **v0.1.0 — One node, told the truth** | shipped | `##########` 100% | 0 | 11 |
-| **v0.2.0 — The whole cluster** | now | `#####.....` 50% | 4 | 4 |
-| **v0.3.0 — Watched, not asked** | next | `##########` 100% | 0 | 4 |
+| **v0.2.0 — The whole cluster, watched** | shipped | `##########` 100% | 0 | 8 |
+| **v0.3.0 — Told by the hardware** | now | `..........` 0% | 4 | 0 |
 
 ## v0.1.0 — One node, told the truth
 
@@ -28,20 +28,20 @@
 - [x] **GL-21** — Nomad matrix · high · M · tests, collector · `0.1.0`
 - [x] **GL-22** — Test-first pass · high · M · tests · `0.1.0`
 
-## v0.2.0 — The whole cluster
+## v0.2.0 — The whole cluster, watched
+
+- [x] **GL-13** — Cluster view · med · M · enhancement · `0.2.0`
+- [x] **GL-14** — Capacity history · low · M · ledger · `0.2.0`
+- [x] **GL-15** — Per-card thresholds · low · S · ledger, docs · `0.2.0`
+- [x] **GL-16** — Podman and containerd · low · M · collector · `0.2.0`
+- [x] **GL-17** — Findings as metrics · med · S · enhancement · `0.2.0`
+- [x] **GL-18** — Alert rules · med · S · release, tests · `0.2.0`
+- [x] **GL-19** — Grafana dashboard · low · S · docs · `0.2.0`
+- [x] **GL-20** — Stable JSON · med · S · ledger, tests · `0.2.0`
+
+## v0.3.0 — Told by the hardware
 
 - [ ] **GL-10** — First run on a real node · high · S · benchmark
-- [ ] **GL-1** — Run QRSPI on the brief: Questions → Research → Spec → Plan · high · L · ledger
 - [ ] **GL-11** — Encoder-only sessions · med · M · collector
-- [x] **GL-13** — Cluster view · med · M · enhancement · `main`
-- [x] **GL-14** — Capacity history · low · M · ledger · `main`
-- [x] **GL-15** — Per-card thresholds · low · S · ledger, docs · `main`
-- [x] **GL-16** — Podman and containerd · low · M · collector · `main`
+- [ ] **GL-1** — Run QRSPI on the brief: Questions → Research → Spec → Plan · high · L · ledger
 - [ ] **GL-23** — containerd · low · M · collector
-
-## v0.3.0 — Watched, not asked
-
-- [x] **GL-17** — Findings as metrics · med · S · enhancement · `main`
-- [x] **GL-18** — Alert rules · med · S · release, tests · `main`
-- [x] **GL-19** — Grafana dashboard · low · S · docs · `main`
-- [x] **GL-20** — Stable JSON · med · S · ledger, tests · `main`

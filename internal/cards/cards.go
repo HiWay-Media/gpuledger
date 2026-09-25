@@ -7,7 +7,7 @@ package cards
 import "strings"
 
 // Matrix is NVIDIA's Video Encode and Decode GPU Support Matrix, read 2026-09-25.
-const Matrix = "https://developer.nvidia.com/video-encode-and-decode-gpu-support-matrix-new (read 2026-09-25)"
+const Matrix = "https://developer.nvidia.com/video-encode-decode-support-matrix (read 2026-09-25)"
 
 // GeForceSessionLimit is the concurrent NVENC session cap the matrix lists for
 // GeForce cards; NVIDIA has raised it before (8 in 2024–25). Re-check before a release.

@@ -64,7 +64,49 @@ owes the driver side and moved to v0.2.0, with GL-1 and GL-11.
   duplicate metric series, map-ordered tenants, a panic on short container ids,
   allocations hidden by ACLs judged unreserved. <!-- gl: prio=high size=M labels=tests ver=0.1.0 -->
 
-## v0.2.0 — The whole cluster <!-- ms: phase=now -->
+## v0.2.0 — The whole cluster, watched <!-- ms: phase=shipped -->
+
+The cluster view, since-when, per-card thresholds and Podman — and, shipped with them
+rather than a release later, what the v0.3.0 draft called "watched, not asked":
+findings as metrics, alert rules, the dashboard and the JSON contract (GL-17 – GL-20).
+What needs a real GPU node moved to v0.3.0.
+
+- [x] **GL-13 — Cluster view**: one command that reads every node's `/ledger` via Consul
+  service discovery (or a list of addresses) and prints the fleet: GPUs total, held,
+  reserved-idle, unmanaged, per node and per job. `gpuledger fleet ls|check`.
+  <!-- gl: prio=med size=M labels=enhancement ver=0.2.0 -->
+- [x] **GL-14 — Capacity history**: a small on-disk record so `check` can say
+  "idle for the last 6 h", the number a scheduling decision needs — one record per GPU
+  (state, since, seen) rather than a ring of snapshots: `--history`.
+  <!-- gl: prio=low size=M labels=ledger ver=0.2.0 -->
+- [x] **GL-15 — Per-card thresholds**: encoder session limits and thermal limits by model
+  (Quadro RTX 4000, L4, T4, A10) with the source of each number. Sessions from NVIDIA's
+  support matrix (unrestricted on all four; the cap is GeForce's); thermal limits are
+  not published per model, so they come from the driver — `temperature.gpu.tlimit` and
+  the slowdown flags, as optional queries. <!-- gl: prio=low size=S labels=ledger,docs ver=0.2.0 -->
+- [x] **GL-16 — Podman and containerd**: the cgroup already names them; the inspect side
+  needs their APIs. Podman shipped — its Engine-compatible API, `libpod` cgroups, the
+  allocation from the podman driver's container name; containerd split out as GL-23.
+  <!-- gl: prio=low size=M labels=collector ver=0.2.0 -->
+- [x] **GL-17 — Findings as metrics**: `gpuledger_findings{code,level}`, the count per
+  code for each refresh, so an alert and `check` never disagree; labels carry the code
+  and severity only, never a tenant. <!-- gl: prio=med size=S labels=enhancement ver=0.2.0 -->
+- [x] **GL-18 — Alert rules**: `deploy/prometheus/gpuledger.rules.yml` covering
+  `unreserved-tenant`, `source-unavailable` / `gpuledger_up == 0` and `reserved-idle`
+  held with `for:`; `promtool test rules` in CI (a CI tool, not a Go dependency).
+  <!-- gl: prio=med size=S labels=release,tests ver=0.2.0 -->
+- [x] **GL-19 — Grafana dashboard**: `deploy/grafana/gpuledger.json` built only from
+  gpuledger's own metrics: per node, per GPU, reserved against held, findings over time.
+  <!-- gl: prio=low size=S labels=docs ver=0.2.0 -->
+- [x] **GL-20 — Stable JSON**: a `schema` version field on `ls --json`, `check --json`,
+  `/ledger` and `/findings`, golden-file tests, and a documented rule for what counts as
+  a breaking change. <!-- gl: prio=med size=S labels=ledger,tests ver=0.2.0 -->
+
+## v0.3.0 — Told by the hardware <!-- ms: phase=now -->
+
+What CI cannot observe: the run on a GPU node with the real driver and device plugin,
+the encoder sessions only a real `nvidia-smi` shows, and the design questions the
+QRSPI run settles with those answers in hand.
 
 - [ ] **GL-10 — First run on a real node**: `gpuledger check` on one host of the farm
   (`gpud` has both a Nomad restreamer and a hand-started encoding container) against
@@ -72,6 +114,12 @@ owes the driver side and moved to v0.2.0, with GL-1 and GL-11.
   every mismatch into the README, dated — the only evidence for the driver side
   (nvidia-smi, the NVIDIA device plugin) that CI cannot produce.
   <!-- gl: prio=high size=S labels=benchmark -->
+- [ ] **GL-11 — Encoder-only sessions**: `nvidia-smi encodersessions` lists NVENC
+  sessions with their pids where `query-compute-apps` does not; parse it as a third
+  source so an encoder tenant is attributed, not just counted. Blocked on GL-10: the
+  bare-metal column layout is not published (researched 2026-09-25, only vGPU's
+  `vgpu -es` is), so the parser needs the real output from a farm node.
+  <!-- gl: prio=med size=M labels=collector -->
 - [ ] **GL-1 — Run QRSPI on the brief: Questions → Research → Spec → Plan**: input
   `thoughts/GL-1-gpu-ledger/00-brief.md`, one fresh session per phase. The design
   questions it must settle: how encoder-only sessions (NVENC without a CUDA context) are
@@ -79,52 +127,8 @@ owes the driver side and moved to v0.2.0, with GL-1 and GL-11.
   driver but absent from Docker and Nomad (a bare process) should ever be OK; the
   thresholds' defaults per card family (Quadro RTX 4000, L4). (What the token needs
   with ACLs is answered by GL-21: `deploy/nomad/gpuledger.policy.hcl`.) <!-- gl: prio=high size=L labels=ledger -->
-- [ ] **GL-11 — Encoder-only sessions**: `nvidia-smi encodersessions` lists NVENC
-  sessions with their pids where `query-compute-apps` does not; parse it as a third
-  source so an encoder tenant is attributed, not just counted. Blocked on GL-10: the
-  bare-metal column layout is not published (researched 2026-09-25, only vGPU's
-  `vgpu -es` is), so the parser needs the real output from a farm node.
-  <!-- gl: prio=med size=M labels=collector -->
-- [x] **GL-13 — Cluster view**: one command that reads every node's `/ledger` via Consul
-  service discovery (or a list of addresses) and prints the fleet: GPUs total, held,
-  reserved-idle, unmanaged, per node and per job. `gpuledger fleet ls|check`.
-  <!-- gl: prio=med size=M labels=enhancement ver=main -->
-- [x] **GL-14 — Capacity history**: a small on-disk record so `check` can say
-  "idle for the last 6 h", the number a scheduling decision needs — one record per GPU
-  (state, since, seen) rather than a ring of snapshots: `--history`.
-  <!-- gl: prio=low size=M labels=ledger ver=main -->
-- [x] **GL-15 — Per-card thresholds**: encoder session limits and thermal limits by model
-  (Quadro RTX 4000, L4, T4, A10) with the source of each number. Sessions from NVIDIA's
-  support matrix (unrestricted on all four; the cap is GeForce's); thermal limits are
-  not published per model, so they come from the driver — `temperature.gpu.tlimit` and
-  the slowdown flags, as optional queries. <!-- gl: prio=low size=S labels=ledger,docs ver=main -->
-- [x] **GL-16 — Podman and containerd**: the cgroup already names them; the inspect side
-  needs their APIs. Podman shipped — its Engine-compatible API, `libpod` cgroups, the
-  allocation from the podman driver's container name; containerd split out as GL-23.
-  <!-- gl: prio=low size=M labels=collector ver=main -->
 - [ ] **GL-23 — containerd**: tasks under Nomad's community containerd driver. The API
   is gRPC, which the standard library does not speak: either `ctr -n <ns> containers
   info` as a read-only runner (the nvidia-smi pattern) or a dependency with its reason in
   `CLAUDE.md`. Needs the driver's labels and cgroup layout observed first, as GL-16 did
   for Podman. <!-- gl: prio=low size=M labels=collector -->
-
-## v0.3.0 — Watched, not asked <!-- ms: phase=next -->
-
-The ledger stops depending on someone running `check`: the same verdict reaches
-Prometheus as a metric, an alert fires on it, and a dashboard shows it per node and per
-GPU. The JSON that `--json`, `/ledger` and `/findings` return becomes a contract that the
-cluster view and checkfleet can depend on.
-
-- [x] **GL-17 — Findings as metrics**: `gpuledger_findings{code,level}`, the count per
-  code for each refresh, so an alert and `check` never disagree; labels carry the code
-  and severity only, never a tenant. <!-- gl: prio=med size=S labels=enhancement ver=main -->
-- [x] **GL-18 — Alert rules**: `deploy/prometheus/gpuledger.rules.yml` covering
-  `unreserved-tenant`, `source-unavailable` / `gpuledger_up == 0` and `reserved-idle`
-  held with `for:`; `promtool test rules` in CI (a CI tool, not a Go dependency).
-  <!-- gl: prio=med size=S labels=release,tests ver=main -->
-- [x] **GL-19 — Grafana dashboard**: `deploy/grafana/gpuledger.json` built only from
-  gpuledger's own metrics: per node, per GPU, reserved against held, findings over time.
-  <!-- gl: prio=low size=S labels=docs ver=main -->
-- [x] **GL-20 — Stable JSON**: a `schema` version field on `ls --json`, `check --json`,
-  `/ledger` and `/findings`, golden-file tests, and a documented rule for what counts as
-  a breaking change. <!-- gl: prio=med size=S labels=ledger,tests ver=main -->

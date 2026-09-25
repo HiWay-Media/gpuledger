@@ -117,10 +117,11 @@ BACKLOG.md / ROADMAP.md      single source of truth (GL-n ids) / generated view
   2026-09-25): `GET /v1/health/service/<name>?passing=true` → `[{Node:{Node,Address},
   Service:{Address,Port}}]`; `Service.Address` empty means the node's; token in
   `X-Consul-Token`.
-- **NVENC** (developer.nvidia.com/video-encode-and-decode-gpu-support-matrix-new,
-  2026-09-25): concurrent sessions "Unrestricted" on Quadro RTX 4000, L4, T4, A10;
-  GeForce 12 (read through a summariser — re-check in a browser before each tag; it was
-  8 in 2024–25). NVENC engines: 1, 2 (L4), 1, 1.
+- **NVENC** (developer.nvidia.com/video-encode-decode-support-matrix — the page moved from
+  …-gpu-support-matrix-new; read in a browser for 0.2.0, 2026-09-25): concurrent sessions
+  "Unrestricted" on Quadro RTX 4000 (Turing, 7th gen), L4 (Ada, 8th), T4 (Turing, 7th),
+  A10 (Ampere, 7th); GeForce 12 on every line (GTX 1080, RTX 4090, RTX 5090) — it was 8 in
+  2024–25, re-check before each tag. NVENC engines: 1, 2, 1, 1.
 - **Thermal** (docs.nvidia.com/deploy/nvidia-smi, man page, NVSentinel runbook,
   2026-09-25): datasheets give ambient ranges only; `temperature.gpu.tlimit` is the margin
   in °C to the card's slowdown temperature; the thermal slowdown flags are
