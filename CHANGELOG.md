@@ -5,6 +5,15 @@ versions follow [SemVer](https://semver.org/). Items reference their `GL-n` back
 
 ## [Unreleased]
 
+### Added
+- `gpuledger fleet ls` and `fleet check`: every node's `/ledger`, from `--targets` or
+  Consul's health API (`--consul`, default `$CONSUL_HTTP_ADDR`; the token from the variable
+  named by `--consul-token-env`). Each GPU is counted as held, reserved-idle, unaccounted
+  or free, per node and per job; `fleet check` evaluates every node with one policy. A
+  node or a Consul that cannot be read is a `source-unavailable` ERROR (GL-13).
+- The Nomad matrix runs `fleet` against the real node, directly and through a Consul dev
+  agent with the system job's `/healthz` check.
+
 ## [0.1.0] — 2026-09-24
 
 The first release. The Nomad side is tested against real agents on every stable minor

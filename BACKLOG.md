@@ -83,9 +83,10 @@ owes the driver side and moved to v0.2.0, with GL-1 and GL-11.
   sessions with their pids where `query-compute-apps` does not; parse it as a third
   source so an encoder tenant is attributed, not just counted.
   <!-- gl: prio=med size=M labels=collector -->
-- [ ] **GL-13 — Cluster view**: one command that reads every node's `/ledger` via Consul
+- [x] **GL-13 — Cluster view**: one command that reads every node's `/ledger` via Consul
   service discovery (or a list of addresses) and prints the fleet: GPUs total, held,
-  reserved-idle, unmanaged, per node and per job. <!-- gl: prio=med size=M labels=enhancement -->
+  reserved-idle, unmanaged, per node and per job. `gpuledger fleet ls|check`.
+  <!-- gl: prio=med size=M labels=enhancement ver=main -->
 - [ ] **GL-14 — Capacity history**: a small on-disk ring of snapshots so `check` can say
   "idle for the last 6 h", the number a scheduling decision needs.
   <!-- gl: prio=low size=M labels=ledger -->

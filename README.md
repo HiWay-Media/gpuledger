@@ -93,11 +93,48 @@ Metrics: `gpuledger_up`, `gpuledger_gpu_info{model,bus}`, `_utilization_percent`
 image or a path. `/ledger` and `/findings` return the same as JSON; `/healthz` is 503,
 with the failing sources in the body, while a source is unreadable.
 
+**The fleet**, from anywhere that reaches the nodes: `gpuledger fleet` reads every
+node's `/ledger` — found through Consul, where the system job registers as `gpuledger`,
+or listed with `--targets` — and counts each GPU as exactly one of held, reserved-idle,
+unaccounted (a tenant Nomad did not reserve the card for, or cannot vouch for) or free,
+per node and per job. `fleet check` evaluates every node with one policy, worst first; a
+node that cannot be read is a `source-unavailable` ERROR, not a failure of the command.
+
+```
+gpuledger fleet --consul consul.service:8500
+gpuledger fleet ls --targets gpua:9877,gpub:9877 --json
+gpuledger fleet check --exit-on bad
+```
+
+Illustrative output, the shape `fleet ls` prints:
+
+```
+gpuledger fleet · 7 node(s), 1 unreachable · 12 GPU(s)
+│ node  │ gpus │ held │ reserved-idle │ unaccounted │ free │ memory              │
+├───────┼──────┼──────┼───────────────┼─────────────┼──────┼─────────────────────┤
+│ gpua  │ 2    │ 1    │ 1             │ 0           │ 0    │ 2048/16384 MiB      │
+│ gpud  │ 2    │ 0    │ 1             │ 1           │ 0    │ 3120/16384 MiB      │
+│ …     │      │      │               │             │      │                     │
+│ gpug  │ —    │ —    │ —             │ —           │ —    │ unreachable: …      │
+│ fleet │ 12   │ 5    │ 3             │ 2           │ 2    │ 21504/98304 MiB     │
+
+│ job                          │ reserved │ held │
+├──────────────────────────────┼──────────┼──────┤
+│ default/gpu-gpud-restreamer  │ 1        │ 1    │
+│ default/tngrm-video-worker   │ 3        │ 1    │
+```
+
+It asks the nodes' gpuledger only, never their Nomad, Docker or driver: each node is
+seen exactly as its own agent sees it. `--consul` defaults to `$CONSUL_HTTP_ADDR`, the
+Consul token comes from the variable named by `--consul-token-env` (`CONSUL_HTTP_TOKEN`),
+`--consul-service gpuledger`, `--timeout 5s` per node.
+
 **Flags:** `--nomad-addr` (default `$NOMAD_ADDR` or `http://127.0.0.1:4646`),
 `--nomad-token-env NOMAD_TOKEN` — the **name** of the variable holding the ACL token, so
 the token is never on a command line — `--docker unix:///var/run/docker.sock`,
 `--nvidia-smi`, `--proc /proc`, `--node`, `--json`, `--no-nomad`, `--no-docker`,
-`--encoder-max`, `--temp-max`, `--allow-unmanaged`, `--no-idle`, `--listen`, `--interval`.
+`--encoder-max`, `--temp-max`, `--allow-unmanaged`, `--no-idle`, `--listen`, `--interval`;
+for `fleet`, `--targets`, `--consul`, `--consul-service`, `--consul-token-env`, `--timeout`.
 
 **With ACLs**, the token needs [`deploy/nomad/gpuledger.policy.hcl`](deploy/nomad/gpuledger.policy.hcl):
 `agent:read`, `node:read` and `read-job` on the namespaces that run GPU jobs. The last
@@ -119,7 +156,9 @@ Docker jobs that ask for `device "nvidia/gpu"` — one in a second namespace —
 container outside Nomad, and checks with the policy file's token that gpuledger says
 `held`, `reserved-idle`, `unreserved-tenant`, `unmanaged-tenant` and `contended` on the
 right cards; that a token without `read-job` or without `node:read` is an ERROR naming
-it; that `/metrics` passes `promtool check metrics`; and that the system job validates.
+it; that `/metrics` passes `promtool check metrics`; that the system job validates; and
+that `fleet` counts the node's jobs right, directly and through a Consul dev agent's
+health API with the `/healthz` check the system job declares.
 
 | Nomad | Tested | Notes |
 |---|---|---|
@@ -143,7 +182,8 @@ or, on 1.3 – 1.6, `/nomad.slice/docker-<id>.scope`.
 - See encoder-only sessions as processes. NVENC sessions without a CUDA context appear
   in `encoder.stats.sessionCount` but not always in `query-compute-apps`; the count is
   reported per GPU, the owner is attributed only when a process is visible.
-- Know about MIG partitions or Kubernetes. Nomad and plain Docker, one node at a time.
+- Know about MIG partitions or Kubernetes. Nomad and plain Docker; the fleet view reads
+  the nodes' own ledgers, it does not replace them.
 
 ## Install
 

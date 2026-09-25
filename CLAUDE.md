@@ -17,12 +17,14 @@ artifacts sit beside it.
 ## Layout
 
 ```
-cmd/gpuledger/main.go        the CLI: ls · check · serve · version; flags; collect() joins the sources
+cmd/gpuledger/main.go        the CLI: ls · check · serve · fleet ls|check · version; flags; collect() joins the sources
 internal/nvidia/             nvidia-smi runner and CSV parsers (GPUQuery, ProcessQuery are the exact field lists)
 internal/containers/         cgroup → container id; Docker Engine client (unix socket or http); Nomad labels
 internal/nomad/              agent self → node id → node allocations → GPU reservations; token from an env var by name
 internal/ledger/             the pure join: Entry per GPU with Reservations and Tenants; Kind nomad|docker|host
 internal/findings/           Policy, Evaluate (codes below), Worst, ExitCode
+internal/fleet/              every node's /ledger (static targets or Consul health API), Summarise per node
+                             and job, Findings with one policy; a node not read is a Node with Err
 internal/metrics/            Prometheus text exposition, hand-written
 internal/render/             the table and the findings text
 internal/version/            Version, set by -ldflags at release
@@ -92,6 +94,10 @@ BACKLOG.md / ROADMAP.md      single source of truth (GL-n ids) / generated view
   allocations; `/v1/agent/self` → `stats.client.node_id` on a client.
 - **nvidia-smi**: `--query-gpu` and `--query-compute-apps` with `--format=csv,noheader,nounits`;
   `[N/A]` and `[Not Supported]` appear as values and parse to 0; UUIDs are `GPU-<uuid>`.
+- **Consul health API** (observed with a Consul 2.0.4 dev agent in the Nomad matrix,
+  2026-09-25): `GET /v1/health/service/<name>?passing=true` → `[{Node:{Node,Address},
+  Service:{Address,Port}}]`; `Service.Address` empty means the node's; token in
+  `X-Consul-Token`.
 - **Docker Engine API**: `GET /containers/json`, `GET /containers/<id>/json`
   (`Config.Labels`, `Config.Env`, `HostConfig.DeviceRequests`).
 - **cgroup paths**: v2 `0::/system.slice/docker-<id>.scope`, v1 `…/docker/<id>`,
