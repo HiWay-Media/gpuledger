@@ -222,12 +222,13 @@ func Summarise(nodes []Node) Summary {
 			ns.GPUs++
 			ns.MemoryUsedMiB += e.MemoryUsedMiB
 			ns.MemoryTotalMiB += e.MemoryTotalMiB
-			switch {
-			case len(e.Tenants) == 0 && len(e.Reservations) == 0:
+			// Classified here, not read from the node: an older gpuledger sends no state.
+			switch ledger.Classify(e) {
+			case ledger.StateFree:
 				ns.Free++
-			case len(e.Tenants) == 0:
+			case ledger.StateReservedIdle:
 				ns.ReservedIdle++
-			case allReserved(e.Tenants):
+			case ledger.StateHeld:
 				ns.Held++
 			default:
 				ns.Unaccounted++
@@ -273,15 +274,6 @@ func Summarise(nodes []Node) Summary {
 		return s.Jobs[i].Job < s.Jobs[j].Job
 	})
 	return s
-}
-
-func allReserved(ts []ledger.Tenant) bool {
-	for _, t := range ts {
-		if t.Kind != ledger.KindNomad || !t.Reserved {
-			return false
-		}
-	}
-	return true
 }
 
 func holds(ts []ledger.Tenant, alloc string) bool {

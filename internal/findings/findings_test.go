@@ -3,6 +3,7 @@ package findings
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hiway-media/gpuledger/internal/ledger"
 	"github.com/hiway-media/gpuledger/internal/nomad"
@@ -100,5 +101,27 @@ func TestUnreservedNeedsTheAllocationToBeVisible(t *testing.T) {
 	tenant.AllocVisible = true
 	if got := codes(Evaluate(ledger.Ledger{Node: "n", NomadRead: true, Entries: entry(tenant)}, Default)); got != "BAD:unreserved-tenant" {
 		t.Fatalf("alloc returned without this GPU: %s", got)
+	}
+}
+
+func TestDurationsFromHistoryInTheMessages(t *testing.T) {
+	at := time.Date(2026, 9, 25, 14, 0, 0, 0, time.UTC)
+	ago := func(d time.Duration) *time.Time { t := at.Add(-d); return &t }
+	l := ledger.Ledger{Node: "gpud", At: at, NomadRead: true, Entries: []ledger.Entry{
+		{GPU: nvidia.GPU{Index: 0, UUID: "GPU-a"}, Reservations: []nomad.Reservation{{AllocID: "r1", JobID: "worker", Task: "w"}}, State: ledger.StateReservedIdle, StateSince: ago(6*time.Hour + 12*time.Minute)},
+		{GPU: nvidia.GPU{Index: 1, UUID: "GPU-b"}, State: ledger.StateFree, StateSince: ago(50 * time.Hour)},
+		{GPU: nvidia.GPU{Index: 2, UUID: "GPU-c"}, State: ledger.StateFree},
+	}}
+	msgs := map[string]string{}
+	for _, f := range Evaluate(l, Default) {
+		msgs[f.GPU] = f.Message
+	}
+	if !strings.Contains(msgs["gpu0 GPU-a"], "for 6h12m") || !strings.Contains(msgs["gpu1 GPU-b"], "for 2d2h") || strings.Contains(msgs["gpu2 GPU-c"], " for ") {
+		t.Fatalf("%v", msgs)
+	}
+	for d, want := range map[time.Duration]string{30 * time.Second: "<1m", 45 * time.Minute: "45m", 3 * time.Hour: "3h0m", 49 * time.Hour: "2d1h"} {
+		if got := Human(d); got != want {
+			t.Errorf("Human(%s) = %q, want %q", d, got, want)
+		}
 	}
 }

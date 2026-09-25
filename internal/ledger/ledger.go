@@ -44,11 +44,41 @@ type Tenant struct {
 	AllocVisible bool `json:"allocVisible"`
 }
 
+// State is what a GPU is doing, from the scheduler's side: every GPU is in exactly one.
+type State string
+
+const (
+	StateFree         State = "free"          // no tenant, no reservation
+	StateReservedIdle State = "reserved-idle" // reserved, nothing on it
+	StateHeld         State = "held"          // tenants, every one the reservation's
+	StateUnaccounted  State = "unaccounted"   // a tenant Nomad did not reserve the card for, or cannot vouch for
+)
+
+// Classify says which State the entry is in.
+func Classify(e Entry) State {
+	switch {
+	case len(e.Tenants) == 0 && len(e.Reservations) == 0:
+		return StateFree
+	case len(e.Tenants) == 0:
+		return StateReservedIdle
+	}
+	for _, t := range e.Tenants {
+		if t.Kind != KindNomad || !t.Reserved {
+			return StateUnaccounted
+		}
+	}
+	return StateHeld
+}
+
 // Entry is one GPU's row in the ledger.
 type Entry struct {
 	nvidia.GPU
 	Reservations []nomad.Reservation `json:"reservations"`
 	Tenants      []Tenant            `json:"tenants"`
+	State        State               `json:"state"`
+	// StateSince is when the GPU entered State, when a history knows it (serve with
+	// --history, or ls and check reading that file); nil otherwise.
+	StateSince *time.Time `json:"stateSince,omitempty"`
 }
 
 // Ledger is one node's snapshot.
@@ -177,6 +207,7 @@ func Build(in Inputs) Ledger {
 			}
 			return a.ContainerID < b.ContainerID
 		})
+		e.State = Classify(e)
 		l.Entries = append(l.Entries, e)
 	}
 	sort.Slice(l.Entries, func(i, j int) bool { return l.Entries[i].Index < l.Entries[j].Index })

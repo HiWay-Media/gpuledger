@@ -66,13 +66,20 @@ func Ledger(l ledger.Ledger) string {
 		for _, r := range e.Reservations {
 			res = append(res, r.JobID+"/"+r.Task)
 		}
-		rows = append(rows, []string{fmt.Sprint(e.Index), e.Model, fmt.Sprintf("%d%%", e.UtilizationPct), fmt.Sprintf("%d/%d MiB", e.MemoryUsedMiB, e.MemoryTotalMiB), fmt.Sprintf("%d °C", e.TemperatureC), fmt.Sprint(e.EncoderSessions), strings.Join(res, ", "), strings.Join(tenants, "; ")})
+		state := string(e.State)
+		if state == "" {
+			state = string(ledger.Classify(e))
+		}
+		if e.StateSince != nil {
+			state += " " + findings.Human(l.At.Sub(*e.StateSince))
+		}
+		rows = append(rows, []string{fmt.Sprint(e.Index), e.Model, fmt.Sprintf("%d%%", e.UtilizationPct), fmt.Sprintf("%d/%d MiB", e.MemoryUsedMiB, e.MemoryTotalMiB), fmt.Sprintf("%d °C", e.TemperatureC), fmt.Sprint(e.EncoderSessions), state, strings.Join(res, ", "), strings.Join(tenants, "; ")})
 	}
 	head := fmt.Sprintf("gpuledger · %s · %d GPU(s) · %s", l.Node, len(l.Entries), l.At.UTC().Format("2006-01-02 15:04:05Z"))
 	if len(l.Errors) > 0 {
 		head += fmt.Sprintf(" · %d source error(s)", len(l.Errors))
 	}
-	return head + "\n" + table([]string{"gpu", "model", "util", "memory", "temp", "enc", "reserved by (nomad)", "tenants"}, rows)
+	return head + "\n" + table([]string{"gpu", "model", "util", "memory", "temp", "enc", "state", "reserved by (nomad)", "tenants"}, rows)
 }
 
 var glyph = map[findings.Level]string{findings.OK: "🟢 OK   ", findings.WARN: "🟡 WARN ", findings.BAD: "🔴 BAD  ", findings.ERROR: "⚫ ERROR"}

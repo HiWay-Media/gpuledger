@@ -48,6 +48,8 @@ func Render(l ledger.Ledger) string {
 	reservations := fam("gpuledger_gpu_reservations", "Nomad allocations the GPU is allocated to.")
 	tmem := fam("gpuledger_tenant_memory_bytes", "Memory a tenant holds on a GPU.")
 	tres := fam("gpuledger_tenant_reserved", "1 when Nomad allocated the GPU to the tenant's allocation.")
+	state := fam("gpuledger_gpu_state", "1 for the state the GPU is in: free, reserved-idle, held or unaccounted.")
+	since := fam("gpuledger_gpu_state_since_timestamp_seconds", "When the GPU entered its state, when serve keeps a --history.")
 
 	upv := 1
 	if len(l.Errors) > 0 {
@@ -65,6 +67,15 @@ func Render(l ledger.Ledger) string {
 		enc.add(g, e.EncoderSessions)
 		tenants.add(g, len(e.Tenants))
 		reservations.add(g, len(e.Reservations))
+		st := e.State
+		if st == "" {
+			st = ledger.Classify(e)
+		}
+		sl := labels("node", l.Node, "gpu", fmt.Sprint(e.Index), "uuid", e.UUID, "state", string(st))
+		state.add(sl, 1)
+		if e.StateSince != nil {
+			since.add(sl, e.StateSince.Unix())
+		}
 		ts := append([]ledger.Tenant(nil), e.Tenants...)
 		sort.SliceStable(ts, func(i, j int) bool {
 			if ts[i].Container != ts[j].Container {
@@ -83,7 +94,7 @@ func Render(l ledger.Ledger) string {
 		}
 	}
 	var b strings.Builder
-	for _, f := range []*family{up, info, util, used, total, temp, power, enc, tenants, reservations, tmem, tres} {
+	for _, f := range []*family{up, info, util, used, total, temp, power, enc, tenants, reservations, state, since, tmem, tres} {
 		fmt.Fprintf(&b, "# HELP %s %s\n# TYPE %s gauge\n", f.name, f.help, f.name)
 		for _, s := range f.samples {
 			b.WriteString(s + "\n")
