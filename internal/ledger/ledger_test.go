@@ -172,3 +172,21 @@ func TestClassifyAndBuildSetTheState(t *testing.T) {
 		t.Fatalf("Build sets State: %s %s", l.Entries[0].State, l.Entries[1].State)
 	}
 }
+
+// An allocation read from a container's name is trusted only when Nomad returns it: a
+// container someone named like a Nomad task is not Nomad's.
+func TestAllocFromNameNeedsNomadToKnowIt(t *testing.T) {
+	cid := repeat("d", 64)
+	in := Inputs{Node: "n", GPUs: []nvidia.GPU{{Index: 0, UUID: uA}}, Processes: []nvidia.Process{{GPUUUID: uA, PID: 1}},
+		ContainerOf:  func(int) string { return cid },
+		Containers:   map[string]containers.Container{cid: {ID: cid, Name: "enc-a1", AllocID: "a1", AllocFromName: true, TaskName: "enc"}},
+		Allocs:       map[string]string{"a1": "default"},
+		Reservations: []nomad.Reservation{{AllocID: "a1", DeviceIDs: []string{uA}}}}
+	if tn := Build(in).Entries[0].Tenants[0]; tn.Kind != KindNomad || !tn.Reserved || !tn.AllocFromName {
+		t.Fatalf("returned by Nomad: %+v", tn)
+	}
+	in.Allocs, in.Reservations = map[string]string{}, nil
+	if tn := Build(in).Entries[0].Tenants[0]; tn.Kind != KindNomad || tn.AllocVisible || !tn.AllocFromName {
+		t.Fatalf("not returned: still a Nomad tenant Nomad cannot vouch for, flagged as named: %+v", tn)
+	}
+}

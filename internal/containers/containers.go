@@ -27,6 +27,9 @@ type Container struct {
 	JobName   string            `json:"jobName,omitempty"`
 	TaskName  string            `json:"taskName,omitempty"`
 	Namespace string            `json:"namespace,omitempty"`
+	// AllocFromName is true when AllocID was read from the name <task>-<alloc id>, the
+	// way Nomad's podman driver names containers when it sets no label.
+	AllocFromName bool `json:"allocFromName,omitempty"`
 }
 
 // NomadManaged is true when Nomad's docker driver started the container.
@@ -34,16 +37,23 @@ func (c Container) NomadManaged() bool { return c.AllocID != "" }
 
 var idRe = regexp.MustCompile(`([0-9a-f]{64})`)
 
+// nameAllocRe is a Nomad task container's name: <task>-<alloc id>, lowercase UUID.
+var nameAllocRe = regexp.MustCompile(`^(.+)-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$`)
+
 // ContainerIDOf reads /proc/<pid>/cgroup under root and returns the 64-hex container id
 // it names, or "" for a host process. Both cgroup v1 and v2 layouts put the id in the
-// path (docker/<id>, docker-<id>.scope, containerd-<id>.scope).
+// path (docker/<id>, docker-<id>.scope, containerd-<id>.scope, Podman's libpod-<id>.scope).
+// Podman's conmon runs in libpod-conmon-<id>: it supervises the container, it is not it.
 func ContainerIDOf(procRoot string, pid int) string {
 	b, err := os.ReadFile(filepath.Join(procRoot, fmt.Sprint(pid), "cgroup"))
 	if err != nil {
 		return ""
 	}
 	for _, line := range strings.Split(string(b), "\n") {
-		if m := idRe.FindStringSubmatch(line); m != nil && (strings.Contains(line, "docker") || strings.Contains(line, "containerd") || strings.Contains(line, "nomad")) {
+		if strings.Contains(line, "libpod-conmon-") {
+			continue
+		}
+		if m := idRe.FindStringSubmatch(line); m != nil && (strings.Contains(line, "docker") || strings.Contains(line, "containerd") || strings.Contains(line, "nomad") || strings.Contains(line, "libpod")) {
 			return m[1]
 		}
 	}
@@ -102,8 +112,14 @@ func fromInspect(in inspect) Container {
 	if c.AllocID == "" {
 		c.AllocID = in.Config.Labels["com.hashicorp.nomad.alloc_id"]
 	}
+	if m := nameAllocRe.FindStringSubmatch(c.Name); c.AllocID == "" && m != nil {
+		c.AllocID, c.AllocFromName = m[2], true
+		c.TaskName = m[1]
+	}
 	c.JobName = in.Config.Labels["com.hashicorp.nomad.job_name"]
-	c.TaskName = in.Config.Labels["com.hashicorp.nomad.task_name"]
+	if v := in.Config.Labels["com.hashicorp.nomad.task_name"]; v != "" {
+		c.TaskName = v
+	}
 	c.Namespace = in.Config.Labels["com.hashicorp.nomad.namespace"]
 	// Only the one environment variable that names GPUs is read; the rest of Env is
 	// never looked at — it is where secrets live.

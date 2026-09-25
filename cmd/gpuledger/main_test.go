@@ -312,3 +312,66 @@ func TestHistoryFromServeToCheck(t *testing.T) {
 		t.Fatalf("a corrupt history is a finding: %s", out)
 	}
 }
+
+// A Nomad podman task without extra_labels, next to the Docker engine: the allocation
+// comes from the container's name and Nomad confirms it.
+func TestPodmanNextToDocker(t *testing.T) {
+	bin := build(t)
+	docker, _ := fakes(t)
+	const alloc = "9eab414d-13fc-1cbe-c7ac-e9e1498a3fb3"
+	cid := strings.Repeat("d", 64)
+	pm := http.NewServeMux()
+	pm.HandleFunc("/containers/json", func(w http.ResponseWriter, _ *http.Request) { fmt.Fprintf(w, `[{"Id":"%s"}]`, cid) })
+	pm.HandleFunc("/containers/"+cid+"/json", func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprintf(w, `{"Id":"%s","Name":"enc-%s","Config":{"Image":"docker.io/library/busybox:1.36","Labels":{},"Env":[]},"HostConfig":{}}`, cid, alloc)
+	})
+	podman := httptest.NewServer(pm)
+	defer podman.Close()
+	nm := http.NewServeMux()
+	nm.HandleFunc("/v1/agent/self", func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte(`{"stats":{"client":{"node_id":"n1"}}}`)) })
+	nm.HandleFunc("/v1/node/n1/allocations", func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprintf(w, `[{"ID":"%s","JobID":"enc","Namespace":"default","ClientStatus":"running","AllocatedResources":{"Tasks":{"enc":{"Devices":[{"Vendor":"nvidia","Type":"gpu","DeviceIDs":["GPU-fef8089b-4a2c-4d1e-9d53-1f2b3c4d5e6f"]}]}}}}]`, alloc)
+	})
+	nomadSrv := httptest.NewServer(nm)
+	defer nomadSrv.Close()
+	dir := t.TempDir()
+	root, _ := filepath.Abs("../../testdata")
+	smi := filepath.Join(dir, "nvidia-smi")
+	os.WriteFile(smi, []byte("#!/bin/sh\ncase \"$1\" in --query-gpu=index,uuid,*) cat "+filepath.Join(root, "query-gpu.csv")+" ;; --query-gpu=*) exit 2 ;; *) echo 'GPU-fef8089b-4a2c-4d1e-9d53-1f2b3c4d5e6f, 7070, 512, ffmpeg' ;; esac\n"), 0o755)
+
+	out, err := exec.Command(bin, "ls", "--json", "--nvidia-smi", smi, "--proc", filepath.Join(root, "proc"), "--docker", docker, "--podman", podman.URL, "--nomad-addr", nomadSrv.URL, "--node", "gpud").Output()
+	if err != nil {
+		t.Fatalf("%v %s", err, out)
+	}
+	var l struct {
+		Entries []struct {
+			State   string
+			Tenants []struct {
+				Kind, AllocID, TaskName string
+				Reserved, AllocFromName bool
+			}
+		}
+		Errors []string
+	}
+	if err := json.Unmarshal(out, &l); err != nil || len(l.Errors) != 0 {
+		t.Fatalf("%v %s", err, out)
+	}
+	// gpu0 also has the hand-started encoder from the Docker fake (by its environment),
+	// so the card is unaccounted; the podman task itself is Nomad's and reserved.
+	found := false
+	for _, tn := range l.Entries[0].Tenants {
+		if tn.AllocID == alloc {
+			found = tn.Kind == "nomad" && tn.Reserved && tn.AllocFromName && tn.TaskName == "enc"
+		}
+	}
+	if !found || len(l.Entries[0].Tenants) != 2 {
+		t.Fatalf("the podman task is Nomad's and reserved: %s", out)
+	}
+
+	// An explicit --podman that cannot be read is a source error; the default, when
+	// the socket does not exist, is simply no Podman.
+	out, _ = exec.Command(bin, "ls", "--json", "--nvidia-smi", smi, "--proc", filepath.Join(root, "proc"), "--docker", docker, "--podman", "http://127.0.0.1:9", "--no-nomad", "--node", "gpud").Output()
+	if !strings.Contains(string(out), `"podman: `) {
+		t.Fatalf("explicit podman down: %s", out)
+	}
+}

@@ -42,6 +42,9 @@ type Tenant struct {
 	// filters the node's allocations by the token's namespaces without an error, so a
 	// Nomad tenant that is not reserved is only known to be unreserved when this is true.
 	AllocVisible bool `json:"allocVisible"`
+	// AllocFromName is true when the allocation id came from the container's name, not
+	// a label (Nomad's podman driver without extra_labels).
+	AllocFromName bool `json:"allocFromName,omitempty"`
 }
 
 // State is what a GPU is doing, from the scheduler's side: every GPU is in exactly one.
@@ -173,7 +176,7 @@ func Build(in Inputs) Ledger {
 				if c.NomadManaged() {
 					kind = KindNomad
 				}
-				t = add("c:"+cid, Tenant{Kind: kind, Container: c.Name, ContainerID: short(cid), Image: c.Image, AllocID: c.AllocID, JobName: c.JobName, TaskName: c.TaskName, Namespace: c.Namespace, Reserved: reservedAllocs[c.AllocID], AllocVisible: visible(in.Allocs, c.AllocID)})
+				t = add("c:"+cid, Tenant{Kind: kind, Container: c.Name, ContainerID: short(cid), Image: c.Image, AllocID: c.AllocID, JobName: c.JobName, TaskName: c.TaskName, Namespace: c.Namespace, Reserved: reservedAllocs[c.AllocID], AllocVisible: visible(in.Allocs, c.AllocID), AllocFromName: c.AllocFromName})
 			} else {
 				t = add("c:"+cid, Tenant{Kind: KindDocker, ContainerID: short(cid)})
 			}
@@ -191,7 +194,7 @@ func Build(in Inputs) Ledger {
 			if c.NomadManaged() {
 				kind = KindNomad
 			}
-			add("c:"+cid, Tenant{Kind: kind, Container: c.Name, ContainerID: short(cid), Image: c.Image, AllocID: c.AllocID, JobName: c.JobName, TaskName: c.TaskName, Namespace: c.Namespace, Reserved: reservedAllocs[c.AllocID], AllocVisible: visible(in.Allocs, c.AllocID), PIDs: []int{}, Processes: []string{}})
+			add("c:"+cid, Tenant{Kind: kind, Container: c.Name, ContainerID: short(cid), Image: c.Image, AllocID: c.AllocID, JobName: c.JobName, TaskName: c.TaskName, Namespace: c.Namespace, Reserved: reservedAllocs[c.AllocID], AllocVisible: visible(in.Allocs, c.AllocID), AllocFromName: c.AllocFromName, PIDs: []int{}, Processes: []string{}})
 		}
 		for _, k := range order {
 			e.Tenants = append(e.Tenants, *byKey[k])

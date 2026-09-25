@@ -113,3 +113,37 @@ func TestClientOverTheUnixSocket(t *testing.T) {
 		t.Fatal("a missing socket is an error")
 	}
 }
+
+// Podman's cgroup names the container libpod-<id>; its conmon supervisor sits in
+// libpod-conmon-<id>, which is not the container and never holds a GPU.
+func TestContainerIDOfPodman(t *testing.T) {
+	root := "../../testdata/proc"
+	if got := ContainerIDOf(root, 7070); got != strings.Repeat("d", 64) {
+		t.Fatalf("libpod scope: %q", got)
+	}
+	if got := ContainerIDOf(root, 7171); got != "" {
+		t.Fatalf("conmon is not the container: %q", got)
+	}
+}
+
+// Nomad's podman driver labels the container only when extra_labels is configured;
+// without it the allocation is in the name, <task>-<alloc id>, as the driver builds it.
+func TestAllocFromTheNameWhenTheLabelIsMissing(t *testing.T) {
+	var in inspect
+	in.ID, in.Name = strings.Repeat("d", 64), "/enc-9eab414d-13fc-1cbe-c7ac-e9e1498a3fb3"
+	c := fromInspect(in)
+	if c.AllocID != "9eab414d-13fc-1cbe-c7ac-e9e1498a3fb3" || !c.AllocFromName || c.TaskName != "enc" || !c.NomadManaged() {
+		t.Fatalf("%+v", c)
+	}
+	in.Config.Labels = map[string]string{"com.hashicorp.nomad.alloc_id": "11111111-2222-3333-4444-555555555555"}
+	if c := fromInspect(in); c.AllocID != "11111111-2222-3333-4444-555555555555" || c.AllocFromName {
+		t.Fatalf("the label wins over the name: %+v", c)
+	}
+	for _, name := range []string{"/gpu-d-new-c0", "/enc-9eab414d", "/9eab414d-13fc-1cbe-c7ac-e9e1498a3fb3", "/enc-9EAB414D-13FC-1CBE-C7AC-E9E1498A3FB3"} {
+		var in inspect
+		in.Name = name
+		if c := fromInspect(in); c.NomadManaged() {
+			t.Errorf("%s is not a Nomad name: %+v", name, c)
+		}
+	}
+}

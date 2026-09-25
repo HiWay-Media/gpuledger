@@ -180,3 +180,11 @@ func TestHotTrustsTheDriverBeforeTheFlag(t *testing.T) {
 		t.Errorf("no driver answer, the flag decides: %q", m)
 	}
 }
+
+func TestInvisibleAllocFromANameSaysSo(t *testing.T) {
+	l := ledger.Ledger{Node: "n", NomadRead: true, Entries: []ledger.Entry{{GPU: nvidia.GPU{UUID: "GPU-a"}, Tenants: []ledger.Tenant{{Kind: ledger.KindNomad, AllocID: "9eab414d-13fc", AllocFromName: true, Container: "enc-9eab414d-13fc"}}}}}
+	fs := Evaluate(l, Default)
+	if len(fs) != 1 || fs[0].Code != "source-unavailable" || !strings.Contains(fs[0].Message, "from the container's name") {
+		t.Fatalf("%+v", fs)
+	}
+}

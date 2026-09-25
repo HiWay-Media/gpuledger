@@ -137,6 +137,21 @@ jobs:
           tar -xzf /tmp/prometheus-*.linux-amd64.tar.gz -C /tmp --strip-components=1 --wildcards '*/promtool'
           /tmp/promtool --version
       - run: docker pull busybox:1.36
+      - name: Podman, its socket, and nomad-driver-podman (latest GA), checksum verified
+        run: |
+          command -v podman || { sudo apt-get update -q && sudo apt-get install -y -q podman; }
+          podman --version
+          sudo systemctl start podman.socket
+          sudo podman pull -q docker.io/library/busybox:1.36
+          cd bin
+          V=$(curl -fsSL https://releases.hashicorp.com/nomad-driver-podman/index.json | node -e '
+            const vs = Object.keys(JSON.parse(require("fs").readFileSync(0)).versions).filter((s) => /^\d+\.\d+\.\d+$/.test(s))
+            vs.sort((x, y) => x.localeCompare(y, "en", { numeric: true }))
+            console.log(vs.at(-1))')
+          curl -fsSLO "https://releases.hashicorp.com/nomad-driver-podman/$V/nomad-driver-podman_${V}_linux_amd64.zip"
+          curl -fsSLO "https://releases.hashicorp.com/nomad-driver-podman/$V/nomad-driver-podman_${V}_SHA256SUMS"
+          grep "nomad-driver-podman_${V}_linux_amd64.zip" "nomad-driver-podman_${V}_SHA256SUMS" | sha256sum -c -
+          unzip -q -o "nomad-driver-podman_${V}_linux_amd64.zip" nomad-driver-podman && echo "nomad-driver-podman $V" >> "$GITHUB_STEP_SUMMARY"
       - name: Build gpuledger and the integration test
         run: |
           CGO_ENABLED=0 go build -o bin/gpuledger ./cmd/gpuledger
@@ -149,4 +164,5 @@ jobs:
                GPULEDGER_BIN="$GITHUB_WORKSPACE/bin/gpuledger" \
                PROMTOOL=/tmp/promtool \
                CONSUL_BIN="$GITHUB_WORKSPACE/bin/consul" \
+               PODMAN_DRIVER="$GITHUB_WORKSPACE/bin/nomad-driver-podman" \
                "$GITHUB_WORKSPACE/bin/it.test" -test.v -test.count=1 -test.timeout=15m
