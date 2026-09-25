@@ -145,7 +145,7 @@ func TestSummarisePerNodeAndPerJob(t *testing.T) {
 			t.Errorf("node %d: got %+v, want %+v", i, s.Nodes[i], want[i])
 		}
 	}
-	if s.Total != (NodeSummary{Node: "fleet", GPUs: 4, Held: 1, ReservedIdle: 1, Unaccounted: 1, Free: 1, MemoryUsedMiB: 3072, MemoryTotalMiB: 32768, Unreachable: 1}) {
+	if s.Total != (NodeSummary{Node: "fleet", Schema: ledger.Schema, GPUs: 4, Held: 1, ReservedIdle: 1, Unaccounted: 1, Free: 1, MemoryUsedMiB: 3072, MemoryTotalMiB: 32768, Unreachable: 1}) {
 		t.Errorf("total: %+v", s.Total)
 	}
 	if len(s.Jobs) != 2 || s.Jobs[0] != (JobSummary{Namespace: "default", Job: "restreamer", Reserved: 1, Held: 1}) || s.Jobs[1] != (JobSummary{Namespace: "video", Job: "worker", Reserved: 1, Held: 0}) {
@@ -182,5 +182,15 @@ func TestFindingsAcrossTheFleet(t *testing.T) {
 	}
 	if findings.Worst(fs) != findings.ERROR {
 		t.Error("worst is ERROR")
+	}
+}
+
+// A node on an older gpuledger shows its schema, so a mixed fleet is visible.
+func TestSummaryCarriesEachNodesSchema(t *testing.T) {
+	d, e := farm()
+	d.Schema, e.Schema = 1, 0
+	s := Summarise([]Node{{Ledger: d}, {Ledger: e}})
+	if s.Nodes[0].Schema != 1 || s.Nodes[1].Schema != 0 || s.Schema != ledger.Schema {
+		t.Fatalf("%+v", s)
 	}
 }

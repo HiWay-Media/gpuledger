@@ -176,6 +176,22 @@ is a `source-unavailable`, the default one that does not exist is simply no Podm
 GPU nodes: without them a Nomad tenant is known by its allocation id and container name
 only.
 
+## The JSON contract
+
+`ls --json`, `check --json`, `/ledger`, `/findings`, `fleet --json` and the history
+file carry `"schema": 1`. The rule, for anything that reads them:
+
+- **Adding a field keeps the schema.** Ignore the fields you do not know.
+- **Removing or renaming a field, or changing its type or its meaning, bumps it** — and
+  the CHANGELOG says so under the release.
+- `schema` absent (or 0) is a gpuledger before 0.3; `fleet` shows such a node as
+  `gpua (schema 0)`, and judges it from what its ledger has.
+
+The reference is [`testdata/golden/`](testdata/golden): the full output of `ls`,
+`check` and `fleet ls` on the test fixtures. Any change to it fails the tests until it
+is regenerated on purpose (`go test ./cmd/gpuledger -run Golden -update`), so no field
+changes by accident.
+
 ## Per-card numbers
 
 What the driver does not report, gpuledger takes from NVIDIA's

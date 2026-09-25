@@ -125,6 +125,6 @@ cluster view and checkfleet can depend on.
 - [x] **GL-19 — Grafana dashboard**: `deploy/grafana/gpuledger.json` built only from
   gpuledger's own metrics: per node, per GPU, reserved against held, findings over time.
   <!-- gl: prio=low size=S labels=docs ver=main -->
-- [ ] **GL-20 — Stable JSON**: a `schema` version field on `ls --json`, `check --json`,
+- [x] **GL-20 — Stable JSON**: a `schema` version field on `ls --json`, `check --json`,
   `/ledger` and `/findings`, golden-file tests, and a documented rule for what counts as
-  a breaking change. <!-- gl: prio=med size=S labels=ledger,tests -->
+  a breaking change. <!-- gl: prio=med size=S labels=ledger,tests ver=main -->

@@ -112,3 +112,12 @@ func TestGoneGPUsAreForgotten(t *testing.T) {
 		t.Fatalf("%v", s.GPUs)
 	}
 }
+
+func TestTheFileCarriesTheSchema(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "h.json")
+	New(time.Minute).Save(path)
+	b, _ := os.ReadFile(path)
+	if !strings.Contains(string(b), `"schema": 1`) {
+		t.Fatalf("%s", b)
+	}
+}

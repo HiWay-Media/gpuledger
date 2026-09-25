@@ -34,7 +34,8 @@ internal/cards/               per-card NVENC engines and session caps from NVIDI
 internal/metrics/            Prometheus text exposition, hand-written
 internal/render/             the table and the findings text
 internal/version/            Version, set by -ldflags at release
-testdata/                    nvidia-smi CSV fixtures, procfs cgroup fixtures, fake-nvidia-smi.sh
+testdata/                    nvidia-smi CSV fixtures, procfs cgroup fixtures, fake-nvidia-smi.sh;
+                             golden/ is the JSON contract's reference (ls, check, fleet ls)
 integration/                 build tag `integration`: gpuledger against a real `nomad agent -dev` (ACLs,
                              fake nvidia/gpu device plugin, docker tasks, a second namespace, promtool)
 deploy/prometheus/           alert rules on gpuledger_findings and the state gauges; promtool unit tests beside them
@@ -153,6 +154,10 @@ compare `reserved by` with `nomad alloc status`, and `tenants` with `nvidia-smi`
 evidence for the driver side that CI cannot produce.
 
 ## Conventions
+
+- **The JSON is a contract** (`ledger.Schema`, README: The JSON contract). A golden
+  diff is a change consumers see: regenerate with `go test ./cmd/gpuledger -run Golden
+  -update` only on purpose, and bump `ledger.Schema` unless the change only adds fields.
 
 - BACKLOG.md first: every idea is a `GL-n` item; shipped items say `ver=`. Regenerate
   ROADMAP.md; `check` fails when it is stale.

@@ -113,7 +113,11 @@ func Fleet(s fleet.Summary) string {
 		if n.Err != "" {
 			return []string{n.Node, "—", "—", "—", "—", "—", "unreachable: " + n.Err}
 		}
-		return []string{n.Node, fmt.Sprint(n.GPUs), fmt.Sprint(n.Held), fmt.Sprint(n.ReservedIdle), fmt.Sprint(n.Unaccounted), fmt.Sprint(n.Free), fmt.Sprintf("%d/%d MiB", n.MemoryUsedMiB, n.MemoryTotalMiB)}
+		name := n.Node
+		if n.Node != "fleet" && n.Schema != ledger.Schema {
+			name += fmt.Sprintf(" (schema %d)", n.Schema) // a node on another gpuledger version
+		}
+		return []string{name, fmt.Sprint(n.GPUs), fmt.Sprint(n.Held), fmt.Sprint(n.ReservedIdle), fmt.Sprint(n.Unaccounted), fmt.Sprint(n.Free), fmt.Sprintf("%d/%d MiB", n.MemoryUsedMiB, n.MemoryTotalMiB)}
 	}
 	rows := [][]string{}
 	for _, n := range s.Nodes {

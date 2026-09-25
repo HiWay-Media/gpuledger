@@ -6,6 +6,13 @@ versions follow [SemVer](https://semver.org/). Items reference their `GL-n` back
 ## [Unreleased]
 
 ### Added
+- The JSON contract: `"schema": 1` on `ls --json`, `check --json`, `/ledger`,
+  `/findings`, `fleet --json` and the history file; the rule for what bumps it in the
+  README; golden files of `ls`, `check` and `fleet ls` in `testdata/golden` that fail
+  the tests on any change until regenerated on purpose. `fleet` shows each node's
+  schema, and marks a node on another one in the table (GL-20).
+
+### Added
 - `gpuledger_findings{node,code,level}` — the count of each code at the last refresh,
   with a zero for every code — and `gpuledger_worst_level` (0 OK … 3 ERROR) (GL-17).
 - `deploy/prometheus/gpuledger.rules.yml`: source down, unreserved and unmanaged
