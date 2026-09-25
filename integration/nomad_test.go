@@ -501,12 +501,12 @@ node { policy = "read" }`)
 	}
 
 	if promtool := os.Getenv("PROMTOOL"); promtool != "" {
-		metrics(t, bin, smi, a.addr, minimal, promtool)
+		metrics(t, bin, smi, a.addr, minimal, promtool, a.labels)
 	}
 }
 
 // metrics serves once and hands /metrics to promtool check metrics.
-func metrics(t *testing.T, bin, smi, addr, token, promtool string) {
+func metrics(t *testing.T, bin, smi, addr, token, promtool string, labels bool) {
 	listen := fmt.Sprintf("127.0.0.1:%d", freePort(t))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -573,7 +573,7 @@ func metrics(t *testing.T, bin, smi, addr, token, promtool string) {
 	}
 
 	if promBin := os.Getenv("PROMETHEUS_BIN"); promBin != "" {
-		dashboardAgainstPrometheus(t, promBin, listen)
+		dashboardAgainstPrometheus(t, promBin, listen, labels)
 	}
 
 	if consulBin := os.Getenv("CONSUL_BIN"); consulBin != "" {
@@ -732,7 +732,8 @@ func TestPodmanAgainstARealNomad(t *testing.T) {
 // dashboard query and every alert expression: each must execute, every panel but the
 // ones the fake driver cannot feed must return data, and the Nomad job must survive
 // ingestion under its own label (Prometheus renames a metric label called job).
-func dashboardAgainstPrometheus(t *testing.T, promBin, listen string) {
+// labels is false on Nomad 1.0, where no job name reaches the container at all.
+func dashboardAgainstPrometheus(t *testing.T, promBin, listen string, labels bool) {
 	dir := t.TempDir()
 	port := freePort(t)
 	cfg := fmt.Sprintf("global:\n  scrape_interval: 1s\nscrape_configs:\n  - job_name: gpuledger\n    static_configs:\n      - targets: [%q]\n", listen)
@@ -762,7 +763,7 @@ func dashboardAgainstPrometheus(t *testing.T, promBin, listen string) {
 		st, n, err := query(`gpuledger_gpu_state_since_timestamp_seconds{state="reserved-idle"}`)
 		return err == nil && n > 0, fmt.Sprint(st, n, err)
 	})
-	if _, n, _ := query(`gpuledger_tenant_memory_bytes{nomad_job="enc"}`); n == 0 {
+	if _, n, _ := query(`gpuledger_tenant_memory_bytes{nomad_job="enc"}`); labels && n == 0 {
 		t.Error("the Nomad job does not survive ingestion under nomad_job")
 	}
 	b, err := os.ReadFile("../deploy/grafana/gpuledger.json")
