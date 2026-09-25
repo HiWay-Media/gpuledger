@@ -5,6 +5,8 @@
 //	gpuledger check     findings, worst first: unmanaged or unreserved tenants, contention,
 //	                    saturated encoders, hot cards, reserved-but-idle, idle capacity
 //	gpuledger serve     HTTP: /metrics (Prometheus), /ledger (JSON), /findings (JSON), /healthz
+//	gpuledger fleet     every node's /ledger, from --targets or Consul: `fleet ls` counts GPUs
+//	                    per node and per job, `fleet check` evaluates every node with one policy
 //	gpuledger version
 //
 // Flags (every subcommand):
@@ -17,6 +19,8 @@
 //	--exit-on          "", warn, bad, error — check's exit code policy (default: always 0)
 //	--encoder-max 8    --temp-max 85    --allow-unmanaged    --no-idle
 //	--listen :9877     --interval 15s   (serve)
+//	--targets h:p,…    --consul $CONSUL_HTTP_ADDR  --consul-service gpuledger
+//	--consul-token-env CONSUL_HTTP_TOKEN (name of the variable)  --timeout 5s   (fleet)
 //
 // Reads only. Never prints a command line, an environment value or a path from a
 // container; the Nomad token comes from an environment variable named by flag, so it is
@@ -36,6 +40,7 @@ import (
 
 	"github.com/hiway-media/gpuledger/internal/containers"
 	"github.com/hiway-media/gpuledger/internal/findings"
+	"github.com/hiway-media/gpuledger/internal/fleet"
 	"github.com/hiway-media/gpuledger/internal/ledger"
 	"github.com/hiway-media/gpuledger/internal/metrics"
 	"github.com/hiway-media/gpuledger/internal/nomad"
@@ -49,6 +54,9 @@ type options struct {
 	jsonOut, allowUnmanaged, noIdle, noNomad, noDocker           bool
 	encoderMax, tempMax                                          int
 	interval                                                     time.Duration
+	// fleet
+	sub, targets, consul, consulService, consulTokenEnv string
+	timeout                                             time.Duration
 }
 
 func parse(args []string) (string, options, error) {
@@ -70,10 +78,24 @@ func parse(args []string) (string, options, error) {
 	fs.IntVar(&o.encoderMax, "encoder-max", findings.Default.EncoderMax, "encoder sessions at or above which a GPU is saturated")
 	fs.IntVar(&o.tempMax, "temp-max", findings.Default.TempMaxC, "temperature (°C) at or above which a GPU is hot")
 	fs.DurationVar(&o.interval, "interval", 15*time.Second, "serve: refresh interval")
+	fs.StringVar(&o.targets, "targets", "", "fleet: gpuledger endpoints, host:port,…")
+	fs.StringVar(&o.consul, "consul", envOr("CONSUL_HTTP_ADDR", ""), "fleet: Consul address, to discover the endpoints")
+	fs.StringVar(&o.consulService, "consul-service", "gpuledger", "fleet: the Consul service gpuledger serve registers as")
+	fs.StringVar(&o.consulTokenEnv, "consul-token-env", "CONSUL_HTTP_TOKEN", "fleet: name of the environment variable holding the Consul ACL token")
+	fs.DurationVar(&o.timeout, "timeout", 5*time.Second, "fleet: per-node timeout")
 	fs.Usage = func() { fmt.Fprint(os.Stderr, usage()) }
 	cmd := "ls"
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		cmd, args = args[0], args[1:]
+	}
+	if cmd == "fleet" {
+		o.sub = "ls"
+		if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+			o.sub, args = args[0], args[1:]
+		}
+		if o.sub != "ls" && o.sub != "check" {
+			return "", o, fmt.Errorf("fleet %q: want fleet ls or fleet check", o.sub)
+		}
 	}
 	if err := fs.Parse(args); err != nil {
 		return "", o, err
@@ -88,6 +110,19 @@ func parse(args []string) (string, options, error) {
 	}
 	if o.interval <= 0 {
 		return "", o, fmt.Errorf("--interval %s: must be positive", o.interval)
+	}
+	if o.timeout <= 0 {
+		return "", o, fmt.Errorf("--timeout %s: must be positive", o.timeout)
+	}
+	if cmd == "fleet" {
+		if o.targets == "" && o.consul == "" {
+			return "", o, fmt.Errorf("fleet needs --targets host:port,… or --consul (or CONSUL_HTTP_ADDR)")
+		}
+		if o.targets != "" {
+			if _, err := fleet.Static(o.targets); err != nil {
+				return "", o, err
+			}
+		}
 	}
 	if o.node == "" {
 		o.node, _ = os.Hostname()
@@ -108,11 +143,14 @@ func usage() string {
   gpuledger ls        one row per GPU: reservations and tenants
   gpuledger check     findings, worst first (--json, --exit-on warn|bad|error)
   gpuledger serve     /metrics, /ledger, /findings, /healthz on --listen (default :9877)
+  gpuledger fleet ls  every node's /ledger (--targets h:p,… or --consul): GPUs per node and job
+  gpuledger fleet check  every node's findings, one policy, worst first (--json, --exit-on)
   gpuledger version
 
 Flags: --nomad-addr --nomad-token-env --docker --nvidia-smi --proc --node --json
        --exit-on --encoder-max --temp-max --allow-unmanaged --no-idle --no-nomad --no-docker
        --listen --interval
+       --targets --consul --consul-service --consul-token-env --timeout
 `
 }
 
@@ -200,6 +238,8 @@ func main() {
 		os.Exit(findings.ExitCode(fs, o.exitOn))
 	case "serve":
 		serve(ctx, o)
+	case "fleet":
+		os.Exit(runFleet(ctx, o))
 	case "help", "-h", "--help":
 		fmt.Print(usage())
 	default:
@@ -261,4 +301,46 @@ func newMux(snap func() ledger.Ledger, p findings.Policy) *http.ServeMux {
 		fmt.Fprintln(w, "ok")
 	})
 	return mux
+}
+
+// discover returns the endpoints: --targets as given, else Consul's passing instances.
+// A discovery that fails, or finds nothing, is reported as a node that could not be
+// read, so it lands in the table and the findings like any other unreadable source.
+func discover(ctx context.Context, o options) ([]fleet.Target, []fleet.Node) {
+	if o.targets != "" {
+		ts, _ := fleet.Static(o.targets) // validated by parse
+		return ts, nil
+	}
+	ts, err := fleet.NewConsul(o.consul, o.consulTokenEnv).Targets(ctx, o.consulService)
+	if err == nil && len(ts) == 0 {
+		err = fmt.Errorf("Consul has no passing instance of service %q", o.consulService)
+	}
+	if err != nil {
+		return nil, []fleet.Node{{Target: fleet.Target{Node: "consul", URL: o.consul}, Err: err.Error()}}
+	}
+	return ts, nil
+}
+
+func runFleet(ctx context.Context, o options) int {
+	targets, failed := discover(ctx, o)
+	nodes := append(failed, fleet.Fetch(ctx, targets, o.timeout)...)
+	at := time.Now()
+	switch o.sub {
+	case "check":
+		fs := fleet.Findings(nodes, policy(o))
+		if o.jsonOut {
+			json.NewEncoder(os.Stdout).Encode(map[string]any{"at": at, "findings": fs, "worst": findings.Worst(fs)})
+		} else {
+			fmt.Print(render.FleetFindings(fs))
+		}
+		return findings.ExitCode(fs, o.exitOn)
+	default:
+		s := fleet.Summarise(nodes)
+		if o.jsonOut {
+			json.NewEncoder(os.Stdout).Encode(map[string]any{"at": at, "summary": s})
+		} else {
+			fmt.Println(render.Fleet(s))
+		}
+		return 0
+	}
 }
