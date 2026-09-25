@@ -17,7 +17,7 @@
 //	--node             node name (default: hostname)
 //	--json             machine-readable output for ls and check
 //	--exit-on          "", warn, bad, error — check's exit code policy (default: always 0)
-//	--encoder-max 8    --temp-max 85    --allow-unmanaged    --no-idle
+//	--encoder-max 0 (the card's cap)    --temp-max 85 (without a driver margin)    --allow-unmanaged    --no-idle
 //	--listen :9877     --interval 15s   (serve)
 //	--history FILE     per-GPU state and since when: serve writes it, ls and check read it
 //	--targets h:p,…    --consul $CONSUL_HTTP_ADDR  --consul-service gpuledger
@@ -78,8 +78,8 @@ func parse(args []string) (string, options, error) {
 	fs.BoolVar(&o.noIdle, "no-idle", false, "do not report idle GPUs as findings")
 	fs.BoolVar(&o.noNomad, "no-nomad", false, "do not ask Nomad (no reservations)")
 	fs.BoolVar(&o.noDocker, "no-docker", false, "do not ask Docker (tenants by pid only)")
-	fs.IntVar(&o.encoderMax, "encoder-max", findings.Default.EncoderMax, "encoder sessions at or above which a GPU is saturated")
-	fs.IntVar(&o.tempMax, "temp-max", findings.Default.TempMaxC, "temperature (°C) at or above which a GPU is hot")
+	fs.IntVar(&o.encoderMax, "encoder-max", findings.Default.EncoderMax, "encoder sessions at or above which a GPU is saturated; 0: the card's own cap (none on Quadro and datacenter cards), -1: off")
+	fs.IntVar(&o.tempMax, "temp-max", findings.Default.TempMaxC, "temperature (°C) at or above which a GPU is hot, when the driver reports no thermal margin")
 	fs.DurationVar(&o.interval, "interval", 15*time.Second, "serve: refresh interval")
 	fs.StringVar(&o.history, "history", "", "state history file: serve writes it, ls and check read it")
 	fs.StringVar(&o.targets, "targets", "", "fleet: gpuledger endpoints, host:port,…")

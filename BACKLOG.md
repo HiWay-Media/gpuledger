@@ -81,7 +81,9 @@ owes the driver side and moved to v0.2.0, with GL-1 and GL-11.
   with ACLs is answered by GL-21: `deploy/nomad/gpuledger.policy.hcl`.) <!-- gl: prio=high size=L labels=ledger -->
 - [ ] **GL-11 — Encoder-only sessions**: `nvidia-smi encodersessions` lists NVENC
   sessions with their pids where `query-compute-apps` does not; parse it as a third
-  source so an encoder tenant is attributed, not just counted.
+  source so an encoder tenant is attributed, not just counted. Blocked on GL-10: the
+  bare-metal column layout is not published (researched 2026-09-25, only vGPU's
+  `vgpu -es` is), so the parser needs the real output from a farm node.
   <!-- gl: prio=med size=M labels=collector -->
 - [x] **GL-13 — Cluster view**: one command that reads every node's `/ledger` via Consul
   service discovery (or a list of addresses) and prints the fleet: GPUs total, held,
@@ -91,9 +93,11 @@ owes the driver side and moved to v0.2.0, with GL-1 and GL-11.
   "idle for the last 6 h", the number a scheduling decision needs — one record per GPU
   (state, since, seen) rather than a ring of snapshots: `--history`.
   <!-- gl: prio=low size=M labels=ledger ver=main -->
-- [ ] **GL-15 — Per-card thresholds**: encoder session limits and thermal limits by model
-  (Quadro RTX 4000, L4, T4, A10) with the source of each number.
-  <!-- gl: prio=low size=S labels=ledger,docs -->
+- [x] **GL-15 — Per-card thresholds**: encoder session limits and thermal limits by model
+  (Quadro RTX 4000, L4, T4, A10) with the source of each number. Sessions from NVIDIA's
+  support matrix (unrestricted on all four; the cap is GeForce's); thermal limits are
+  not published per model, so they come from the driver — `temperature.gpu.tlimit` and
+  the slowdown flags, as optional queries. <!-- gl: prio=low size=S labels=ledger,docs ver=main -->
 - [ ] **GL-16 — Podman and containerd**: the cgroup already names them; the inspect side
   needs their APIs. <!-- gl: prio=low size=M labels=collector -->
 

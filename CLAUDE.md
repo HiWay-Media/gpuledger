@@ -28,6 +28,8 @@ internal/history/            per-GPU state and since when; Observe skips partial
                              restarts the clock; Save is tmp + rename; only serve writes it
 internal/fleet/              every node's /ledger (static targets or Consul health API), Summarise per node
                              and job, Findings with one policy; a node not read is a Node with Err
+internal/cards/               per-card NVENC engines and session caps from NVIDIA's support matrix, each with
+                             its source; exact nvidia-smi names ("NVIDIA A10" is not an A10G or an A100)
 internal/metrics/            Prometheus text exposition, hand-written
 internal/render/             the table and the findings text
 internal/version/            Version, set by -ldflags at release
@@ -102,6 +104,18 @@ BACKLOG.md / ROADMAP.md      single source of truth (GL-n ids) / generated view
   2026-09-25): `GET /v1/health/service/<name>?passing=true` → `[{Node:{Node,Address},
   Service:{Address,Port}}]`; `Service.Address` empty means the node's; token in
   `X-Consul-Token`.
+- **NVENC** (developer.nvidia.com/video-encode-and-decode-gpu-support-matrix-new,
+  2026-09-25): concurrent sessions "Unrestricted" on Quadro RTX 4000, L4, T4, A10;
+  GeForce 12 (read through a summariser — re-check in a browser before each tag; it was
+  8 in 2024–25). NVENC engines: 1, 2 (L4), 1, 1.
+- **Thermal** (docs.nvidia.com/deploy/nvidia-smi, man page, NVSentinel runbook,
+  2026-09-25): datasheets give ambient ranges only; `temperature.gpu.tlimit` is the margin
+  in °C to the card's slowdown temperature; the thermal slowdown flags are
+  `clocks_event_reasons.{hw,sw}_thermal_slowdown`, `clocks_throttle_reasons.*` before the
+  rename — the driver version of the rename (535) comes from a Telegraf PR only. Neither
+  has been observed on the farm's driver: that is part of GL-10.
+- **`nvidia-smi encodersessions`**: its bare-metal column layout is not published
+  (only vGPU's `vgpu -es`); GL-11 needs the real output from a farm node.
 - **Docker Engine API**: `GET /containers/json`, `GET /containers/<id>/json`
   (`Config.Labels`, `Config.Env`, `HostConfig.DeviceRequests`).
 - **cgroup paths**: v2 `0::/system.slice/docker-<id>.scope`, v1 `…/docker/<id>`,

@@ -20,7 +20,7 @@ func codes(fs []Finding) string {
 
 func TestEvaluateCoversEveryCode(t *testing.T) {
 	l := ledger.Ledger{Node: "gpud", NomadRead: true, Errors: []string{"nomad: HTTP 500"}, Entries: []ledger.Entry{
-		{GPU: nvidia.GPU{Index: 0, UUID: "GPU-aaaa", EncoderSessions: 9, TemperatureC: 90}, Reservations: []nomad.Reservation{{AllocID: "r1", JobID: "j", Task: "t", DeviceIDs: []string{"GPU-aaaa"}}}, Tenants: []ledger.Tenant{
+		{GPU: nvidia.GPU{Index: 0, UUID: "GPU-aaaa", Model: "NVIDIA GeForce RTX 4090", EncoderSessions: 12, TemperatureC: 90}, Reservations: []nomad.Reservation{{AllocID: "r1", JobID: "j", Task: "t", DeviceIDs: []string{"GPU-aaaa"}}}, Tenants: []ledger.Tenant{
 			{Kind: ledger.KindNomad, JobName: "j", TaskName: "t", AllocID: "r1", Reserved: true, Container: "c1"},
 			{Kind: ledger.KindDocker, Container: "rogue", Image: "img", PIDs: []int{1}},
 		}},
@@ -45,7 +45,7 @@ func TestEvaluateCoversEveryCode(t *testing.T) {
 	if ExitCode(fs, "") != 0 || ExitCode(fs, "warn") != 3 || ExitCode(fs, "bad") != 3 || ExitCode(fs, "error") != 3 {
 		t.Fatal("exit codes")
 	}
-	relaxed := Evaluate(ledger.Ledger{Entries: l.Entries[:1]}, Policy{EncoderMax: 0, TempMaxC: 0, AllowUnmanaged: true})
+	relaxed := Evaluate(ledger.Ledger{Entries: l.Entries[:1]}, Policy{EncoderMax: -1, TempMaxC: 0, AllowUnmanaged: true})
 	if strings.Contains(codes(relaxed), "BAD") || strings.Contains(codes(relaxed), "hot") || strings.Contains(codes(relaxed), "encoder") {
 		t.Fatalf("relaxed policy: %s", codes(relaxed))
 	}
@@ -123,5 +123,60 @@ func TestDurationsFromHistoryInTheMessages(t *testing.T) {
 		if got := Human(d); got != want {
 			t.Errorf("Human(%s) = %q, want %q", d, got, want)
 		}
+	}
+}
+
+func TestEncoderLimitIsTheCards(t *testing.T) {
+	g := func(model string, sessions int) ledger.Ledger {
+		return ledger.Ledger{Node: "n", NomadRead: true, Entries: []ledger.Entry{{GPU: nvidia.GPU{Index: 0, UUID: "GPU-a", Model: model, EncoderSessions: sessions}, Tenants: []ledger.Tenant{{Kind: ledger.KindNomad, Reserved: true, AllocVisible: true}}}}}
+	}
+	has := func(l ledger.Ledger, p Policy) string {
+		for _, f := range Evaluate(l, p) {
+			if f.Code == "encoder-saturated" {
+				return f.Message
+			}
+		}
+		return ""
+	}
+	if m := has(g("Quadro RTX 4000", 40), Default); m != "" {
+		t.Errorf("sessions are unrestricted on a Quadro RTX 4000: %s", m)
+	}
+	if m := has(g("NVIDIA GeForce RTX 4090", 12), Default); !strings.Contains(m, "12") || !strings.Contains(m, "GeForce") {
+		t.Errorf("GeForce at its cap: %q", m)
+	}
+	if m := has(g("NVIDIA GeForce RTX 4090", 11), Default); m != "" {
+		t.Errorf("under the cap: %s", m)
+	}
+	if m := has(g("Quadro RTX 4000", 8), Policy{EncoderMax: 8}); !strings.Contains(m, "--encoder-max 8") {
+		t.Errorf("an explicit --encoder-max applies to every card: %q", m)
+	}
+	if m := has(g("Unknown Card", 50), Default); m != "" {
+		t.Errorf("no limit known, no finding: %s", m)
+	}
+}
+
+func TestHotTrustsTheDriverBeforeTheFlag(t *testing.T) {
+	i := func(v int) *int { return &v }
+	b := func(v bool) *bool { return &v }
+	hot := func(g nvidia.GPU) string {
+		g.UUID = "GPU-a"
+		for _, f := range Evaluate(ledger.Ledger{Node: "n", Entries: []ledger.Entry{{GPU: g}}}, Default) {
+			if f.Code == "hot" {
+				return f.Message
+			}
+		}
+		return ""
+	}
+	if m := hot(nvidia.GPU{TemperatureC: 70, ThermalSlowdown: b(true)}); !strings.Contains(m, "thermal slowdown") {
+		t.Errorf("slowdown active: %q", m)
+	}
+	if m := hot(nvidia.GPU{TemperatureC: 80, ThermalMarginC: i(4)}); !strings.Contains(m, "4 °C") {
+		t.Errorf("within the margin: %q", m)
+	}
+	if m := hot(nvidia.GPU{TemperatureC: 90, ThermalMarginC: i(20), ThermalSlowdown: b(false)}); m != "" {
+		t.Errorf("the driver says 20 °C of margin and no slowdown; --temp-max does not override it: %q", m)
+	}
+	if m := hot(nvidia.GPU{TemperatureC: 90}); !strings.Contains(m, "--temp-max") {
+		t.Errorf("no driver answer, the flag decides: %q", m)
 	}
 }
