@@ -117,14 +117,14 @@ cluster view and checkfleet can depend on.
 
 - [x] **GL-17 — Findings as metrics**: `gpuledger_findings{code,level}`, the count per
   code for each refresh, so an alert and `check` never disagree; labels carry the code
-  and severity only, never a tenant. <!-- gl: prio=med size=S labels=enhancement  ver=main-->
+  and severity only, never a tenant. <!-- gl: prio=med size=S labels=enhancement ver=main -->
 - [x] **GL-18 — Alert rules**: `deploy/prometheus/gpuledger.rules.yml` covering
   `unreserved-tenant`, `source-unavailable` / `gpuledger_up == 0` and `reserved-idle`
   held with `for:`; `promtool test rules` in CI (a CI tool, not a Go dependency).
-  <!-- gl: prio=med size=S labels=release,tests  ver=main-->
+  <!-- gl: prio=med size=S labels=release,tests ver=main -->
 - [x] **GL-19 — Grafana dashboard**: `deploy/grafana/gpuledger.json` built only from
   gpuledger's own metrics: per node, per GPU, reserved against held, findings over time.
-  <!-- gl: prio=low size=S labels=docs  ver=main-->
+  <!-- gl: prio=low size=S labels=docs ver=main -->
 - [ ] **GL-20 — Stable JSON**: a `schema` version field on `ls --json`, `check --json`,
   `/ledger` and `/findings`, golden-file tests, and a documented rule for what counts as
   a breaking change. <!-- gl: prio=med size=S labels=ledger,tests -->

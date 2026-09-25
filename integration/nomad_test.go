@@ -778,14 +778,15 @@ func dashboardAgainstPrometheus(t *testing.T, promBin, listen string) {
 	if err := json.Unmarshal(b, &d); err != nil {
 		t.Fatal(err)
 	}
-	mayBeEmpty := map[string]bool{"Thermal slowdown": true} // the fake nvidia-smi reports no slowdown flags
+	// The fake nvidia-smi answers none of the optional thermal fields.
+	mayBeEmpty := func(expr string) bool { return strings.Contains(expr, "gpuledger_gpu_thermal_") }
 	for _, p := range d.Panels {
 		for _, tg := range p.Targets {
 			expr := strings.ReplaceAll(tg.Expr, "$node", ".*")
 			st, n, err := query(expr)
 			if err != nil || st != "success" {
 				t.Errorf("panel %q: %s: %v %s", p.Title, expr, err, st)
-			} else if n == 0 && !mayBeEmpty[p.Title] {
+			} else if n == 0 && !mayBeEmpty(expr) {
 				t.Errorf("panel %q returns no data: %s", p.Title, expr)
 			}
 		}
