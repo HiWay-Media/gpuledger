@@ -44,6 +44,7 @@ $ gpuledger check
 | What is on each card right now — utilisation, memory, temperature, power, NVENC sessions | `nvidia-smi --query-gpu`, the documented CSV form, no NVML binding |
 | Which processes hold it, and how much memory each | `nvidia-smi --query-compute-apps` — the process name is reduced to its binary, arguments are never read |
 | Which container each process is in, and whether Nomad started it | `/proc/<pid>/cgroup` → container id → Docker Engine API; Nomad's `com.hashicorp.nomad.alloc_id` label (plus `job_name`, `task_name`, `namespace` when the driver's `extra_labels` are on) |
+| The same under Podman | Podman's Docker-compatible API (`--podman`, its socket when it exists); `libpod-<id>` cgroups; for Nomad's podman driver, which labels nothing without `extra_labels`, the allocation from the container's name `<task>-<alloc id>` — trusted only when Nomad returns that allocation |
 | Which containers hold a GPU with no process at this instant | the container's `NVIDIA_VISIBLE_DEVICES` and `DeviceRequests` — the only environment variable it reads |
 | Which allocation Nomad **reserved** each GPU for | the local agent: `/v1/agent/self` for the node id, `/v1/node/<id>/allocations` for `AllocatedResources.Tasks.*.Devices[].DeviceIDs` |
 
@@ -145,7 +146,7 @@ Consul token comes from the variable named by `--consul-token-env` (`CONSUL_HTTP
 **Flags:** `--nomad-addr` (default `$NOMAD_ADDR` or `http://127.0.0.1:4646`),
 `--nomad-token-env NOMAD_TOKEN` — the **name** of the variable holding the ACL token, so
 the token is never on a command line — `--docker unix:///var/run/docker.sock`,
-`--nvidia-smi`, `--proc /proc`, `--node`, `--json`, `--no-nomad`, `--no-docker`,
+`--podman auto`, `--nvidia-smi`, `--proc /proc`, `--node`, `--json`, `--no-nomad`, `--no-docker`,
 `--encoder-max`, `--temp-max`, `--allow-unmanaged`, `--no-idle`, `--listen`, `--interval`,
 `--history`;
 for `fleet`, `--targets`, `--consul`, `--consul-service`, `--consul-token-env`, `--timeout`.
@@ -155,6 +156,10 @@ for `fleet`, `--targets`, `--consul`, `--consul-service`, `--consul-token-env`, 
 one is easy to miss: without it Nomad answers the node's allocations **without** that
 namespace's, and no error — gpuledger reports `source-unavailable` for each Nomad
 container whose allocation it cannot see rather than calling it unreserved.
+
+**Podman** is read next to Docker when `/run/podman/podman.sock` exists (`--podman off`
+to skip it, or an endpoint of your own); a Podman endpoint you name that cannot be read
+is a `source-unavailable`, the default one that does not exist is simply no Podman.
 
 **Turn on the docker driver's `extra_labels`** (`job_name`, `task_name`, `namespace`) on
 GPU nodes: without them a Nomad tenant is known by its allocation id and container name
@@ -198,7 +203,9 @@ container outside Nomad, and checks with the policy file's token that gpuledger 
 right cards; that a token without `read-job` or without `node:read` is an ERROR naming
 it; that `/metrics` passes `promtool check metrics`; that the system job validates; and
 that `fleet` counts the node's jobs right, directly and through a Consul dev agent's
-health API with the `/healthz` check the system job declares.
+health API with the `/healthz` check the system job declares. A second test runs a task
+under the latest `nomad-driver-podman` (0.6.5), without `extra_labels`, and checks the card
+comes out `held` from the container's name alone.
 
 | Nomad | Tested | Notes |
 |---|---|---|
@@ -210,7 +217,9 @@ health API with the `/healthz` check the system job declares.
 What the matrix established, on every version: the docker driver labels containers
 `com.hashicorp.nomad.alloc_id`; `/v1/node/<id>/allocations` filters by the token's
 `read-job` without an error; the task's cgroup is `/system.slice/docker-<id>.scope`
-or, on 1.3 – 1.6, `/nomad.slice/docker-<id>.scope`.
+or, on 1.3 – 1.6, `/nomad.slice/docker-<id>.scope`. Under the podman driver: no label at
+all without `extra_labels`, the name `<task>-<alloc id>`, the cgroup
+`/nomad.slice/libpod-<id>.scope/container` — on every version, 1.0 included.
 
 ## What it does not do
 
@@ -222,6 +231,8 @@ or, on 1.3 – 1.6, `/nomad.slice/docker-<id>.scope`.
 - See encoder-only sessions as processes. NVENC sessions without a CUDA context appear
   in `encoder.stats.sessionCount` but not always in `query-compute-apps`; the count is
   reported per GPU, the owner is attributed only when a process is visible.
+- Read containerd directly (Nomad's community containerd driver): its API is gRPC,
+  which the standard library does not speak — GL-23.
 - Know about MIG partitions or Kubernetes. Nomad and plain Docker; the fleet view reads
   the nodes' own ledgers, it does not replace them.
 
