@@ -129,13 +129,13 @@ jobs:
           curl -fsSLO "https://releases.hashicorp.com/consul/$V/consul_${V}_SHA256SUMS"
           grep "consul_${V}_linux_amd64.zip" "consul_${V}_SHA256SUMS" | sha256sum -c -
           unzip -q -o "consul_${V}_linux_amd64.zip" consul && ./consul version
-      - name: promtool
+      - name: Prometheus and promtool (latest)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release download --repo prometheus/prometheus --pattern 'prometheus-*.linux-amd64.tar.gz' --dir /tmp
-          tar -xzf /tmp/prometheus-*.linux-amd64.tar.gz -C /tmp --strip-components=1 --wildcards '*/promtool'
-          /tmp/promtool --version
+          tar -xzf /tmp/prometheus-*.linux-amd64.tar.gz -C /tmp --strip-components=1 --wildcards '*/promtool' '*/prometheus'
+          /tmp/promtool --version && /tmp/prometheus --version | head -1
       - run: docker pull busybox:1.36
       - name: Podman, its socket, and nomad-driver-podman (latest GA), checksum verified
         run: |
@@ -163,6 +163,7 @@ jobs:
                GPULEDGER_DEVICE_PLUGIN="$GITHUB_WORKSPACE/bin/nomad-device-fake" \
                GPULEDGER_BIN="$GITHUB_WORKSPACE/bin/gpuledger" \
                PROMTOOL=/tmp/promtool \
+               PROMETHEUS_BIN=/tmp/prometheus \
                CONSUL_BIN="$GITHUB_WORKSPACE/bin/consul" \
                PODMAN_DRIVER="$GITHUB_WORKSPACE/bin/nomad-driver-podman" \
                "$GITHUB_WORKSPACE/bin/it.test" -test.v -test.count=1 -test.timeout=15m

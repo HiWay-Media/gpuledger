@@ -1,0 +1,62 @@
+# Alerting rules for gpuledger's /metrics. Every metric named here is checked against
+# what gpuledger actually exposes (internal/metrics: TestRulesAndDashboardNameRealMetrics),
+# and the rules are unit-tested with `promtool test rules gpuledger.rules.test.yml` in CI.
+#
+# The findings' own verdict drives the alerts — gpuledger_findings{code} — so an alert
+# and `gpuledger check` never disagree.
+
+groups:
+  - name: gpuledger
+    rules:
+      - alert: GPULedgerSourceDown
+        expr: gpuledger_up == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "gpuledger on {{ $labels.node }} cannot read a source"
+          description: "nvidia-smi, Docker or Nomad could not be read for 5 minutes; the ledger is partial. /healthz on the node names the failing source."
+
+      - alert: GPULedgerUnreservedTenant
+        expr: gpuledger_findings{code="unreserved-tenant"} > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "A Nomad task on {{ $labels.node }} uses a GPU Nomad did not allocate to it"
+          description: "{{ $value }} GPU(s). Check the task's NVIDIA_VISIBLE_DEVICES and its device stanza: `gpuledger check` on the node."
+
+      - alert: GPULedgerUnmanagedTenant
+        expr: gpuledger_findings{code="unmanaged-tenant"} > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Something outside Nomad holds a GPU on {{ $labels.node }}"
+          description: "{{ $value }} container(s) or host process(es) nobody orchestrates, for 15 minutes. `gpuledger ls` on the node names them."
+
+      - alert: GPULedgerReservedIdle
+        expr: (time() - gpuledger_gpu_state_since_timestamp_seconds{state="reserved-idle"}) > 6 * 3600
+        labels:
+          severity: info
+        annotations:
+          summary: "GPU {{ $labels.gpu }} on {{ $labels.node }} reserved and idle for over 6 hours"
+          description: "Nomad reserved the card and nothing runs on it. Needs serve --history, which the system job sets."
+
+      - alert: GPULedgerHot
+        expr: gpuledger_findings{code="hot"} > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "A GPU on {{ $labels.node }} is thermally slowing down or near its limit"
+          description: "{{ $value }} GPU(s) for 10 minutes: the driver reports slowdown active or 5 °C or less of margin."
+
+      - alert: GPULedgerThermalSlowdown
+        expr: gpuledger_gpu_thermal_slowdown == 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "GPU {{ $labels.gpu }} on {{ $labels.node }} is clocking itself down"
+          description: "Hardware or software thermal slowdown active for 5 minutes."

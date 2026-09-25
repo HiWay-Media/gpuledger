@@ -86,14 +86,14 @@ nomad job run -var version=0.1.0 deploy/nomad/gpuledger.nomad.hcl
 curl -s http://<node>:9877/metrics | grep gpuledger_gpu_tenants
 ```
 
-Metrics: `gpuledger_up`, `gpuledger_gpu_info{model,bus}`, `_utilization_percent`,
+Metrics: `gpuledger_up`, `gpuledger_findings{code,level}`, `gpuledger_worst_level`, `gpuledger_gpu_info{model,bus}`, `_utilization_percent`,
 `_memory_used_bytes`, `_memory_total_bytes`, `_temperature_celsius`, `_power_watts`,
 `_encoder_sessions`, `_thermal_margin_celsius`, `_thermal_slowdown`, `_tenants`,
 `_reservations`, `gpuledger_gpu_state{state}` and, with
 a history, `gpuledger_gpu_state_since_timestamp_seconds{state}` — alert on
 `time() - gpuledger_gpu_state_since_timestamp_seconds{state="reserved-idle"} > 6*3600` —
 and per tenant
-`gpuledger_tenant_memory_bytes{kind,container,container_id,job,task,alloc,namespace}` and
+`gpuledger_tenant_memory_bytes{kind,container,container_id,nomad_job,task,alloc,namespace}` and
 `gpuledger_tenant_reserved`. Labels carry names and ids, never a process name, a pid, an
 image or a path. `/ledger` and `/findings` return the same as JSON; `/healthz` is 503,
 with the failing sources in the body, while a source is unreadable.
@@ -150,6 +150,17 @@ the token is never on a command line — `--docker unix:///var/run/docker.sock`,
 `--encoder-max`, `--temp-max`, `--allow-unmanaged`, `--no-idle`, `--listen`, `--interval`,
 `--history`;
 for `fleet`, `--targets`, `--consul`, `--consul-service`, `--consul-token-env`, `--timeout`.
+
+**Alerts and a dashboard**, for Prometheus and Grafana:
+[`deploy/prometheus/gpuledger.rules.yml`](deploy/prometheus/gpuledger.rules.yml) —
+source down, an unreserved or unmanaged tenant, a card hot or thermally slowing down,
+reserved and idle for over six hours — driven by `gpuledger_findings{code,level}`, the
+same verdict `check` gives, with a zero for every code so `> 0` always has a series;
+`gpuledger_worst_level` is `check`'s exit-code scale. The rules are unit-tested with
+`promtool test rules`. [`deploy/grafana/gpuledger.json`](deploy/grafana/gpuledger.json)
+imports into any Grafana with a Prometheus datasource; in CI it is imported into the
+latest Grafana, and every one of its queries — and every rule — runs against a real
+Prometheus scraping gpuledger on real Nomad allocations.
 
 **With ACLs**, the token needs [`deploy/nomad/gpuledger.policy.hcl`](deploy/nomad/gpuledger.policy.hcl):
 `agent:read`, `node:read` and `read-job` on the namespaces that run GPU jobs. The last

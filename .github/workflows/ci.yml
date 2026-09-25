@@ -32,6 +32,30 @@ jobs:
       # the README must carry, the Nomad job spec naming the right binary.
       - run: ./scripts/check-repo.sh
 
+  # The alert rules and the dashboard: promtool checks and unit-tests the rules, a real
+  # Grafana (latest) imports the dashboard. That every metric they name exists is a Go
+  # test (internal/metrics); that every query returns data is in the Nomad matrix.
+  observability:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: promtool (latest)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download --repo prometheus/prometheus --pattern 'prometheus-*.linux-amd64.tar.gz' --dir /tmp
+          tar -xzf /tmp/prometheus-*.linux-amd64.tar.gz -C /tmp --strip-components=1 --wildcards '*/promtool'
+      - run: /tmp/promtool check rules deploy/prometheus/gpuledger.rules.yml
+      - run: cd deploy/prometheus && /tmp/promtool test rules gpuledger.rules.test.yml
+      - name: Grafana imports the dashboard
+        run: |
+          docker run -d --name grafana -p 3000:3000 -e GF_AUTH_ANONYMOUS_ENABLED=true -e GF_AUTH_ANONYMOUS_ORG_ROLE=Admin grafana/grafana:latest
+          for i in $(seq 1 60); do curl -fs http://127.0.0.1:3000/api/health && break; sleep 2; done
+          jq '{dashboard: ., overwrite: true}' deploy/grafana/gpuledger.json > /tmp/import.json
+          curl -fsS -H 'Content-Type: application/json' -X POST http://127.0.0.1:3000/api/dashboards/db --data @/tmp/import.json | tee /tmp/out.json
+          jq -e '.status == "success"' /tmp/out.json
+          curl -fsS http://127.0.0.1:3000/api/dashboards/uid/gpuledger | jq -e '.dashboard.panels | length == 12'
+
   # BACKLOG.md is the single source of truth; ROADMAP.md is generated from it.
   backlog:
     runs-on: ubuntu-latest

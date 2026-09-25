@@ -147,14 +147,15 @@ func TestServeExposesMetricsLedgerAndFindings(t *testing.T) {
 	bin := build(t)
 	docker, nomadURL := fakes(t)
 	root, _ := filepath.Abs("../../testdata")
-	cmd := exec.Command(bin, "serve", "--listen", "127.0.0.1:19877", "--interval", "1s", "--nvidia-smi", filepath.Join(root, "fake-nvidia-smi.sh"), "--proc", filepath.Join(root, "proc"), "--docker", docker, "--nomad-addr", nomadURL, "--node", "gpud")
+	listen := freeAddr(t)
+	cmd := exec.Command(bin, "serve", "--listen", listen, "--interval", "1s", "--nvidia-smi", filepath.Join(root, "fake-nvidia-smi.sh"), "--proc", filepath.Join(root, "proc"), "--docker", docker, "--nomad-addr", nomadURL, "--node", "gpud")
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
 	defer cmd.Process.Kill()
 	var body string
 	for i := 0; i < 50; i++ {
-		res, err := http.Get("http://127.0.0.1:19877/metrics")
+		res, err := http.Get("http://" + listen + "/metrics")
 		if err == nil {
 			b := make([]byte, 1<<16)
 			n, _ := res.Body.Read(b)
@@ -170,7 +171,7 @@ func TestServeExposesMetricsLedgerAndFindings(t *testing.T) {
 		}
 	}
 	for _, path := range []string{"/ledger", "/findings", "/healthz"} {
-		res, err := http.Get("http://127.0.0.1:19877" + path)
+		res, err := http.Get("http://" + listen + path)
 		if err != nil || res.StatusCode != 200 {
 			t.Fatalf("%s: %v %v", path, err, res)
 		}
@@ -195,8 +196,8 @@ func TestFleetOverRealServeProcesses(t *testing.T) {
 	docker, nomadURL := fakes(t)
 	root, _ := filepath.Abs("../../testdata")
 	var addrs []string
-	for i, node := range []string{"gpud", "gpue"} {
-		addr := fmt.Sprintf("127.0.0.1:%d", 19880+i)
+	for _, node := range []string{"gpud", "gpue"} {
+		addr := freeAddr(t)
 		cmd := exec.Command(bin, "serve", "--listen", addr, "--nvidia-smi", filepath.Join(root, "fake-nvidia-smi.sh"), "--proc", filepath.Join(root, "proc"), "--docker", docker, "--nomad-addr", nomadURL, "--node", node)
 		if err := cmd.Start(); err != nil {
 			t.Fatal(err)
@@ -216,7 +217,8 @@ func TestFleetOverRealServeProcesses(t *testing.T) {
 			http.NotFound(w, r)
 			return
 		}
-		fmt.Fprintf(w, `[{"Node":{"Node":"gpud","Address":"127.0.0.1"},"Service":{"Port":19880}},{"Node":{"Node":"gpue","Address":"127.0.0.1"},"Service":{"Port":19881}},{"Node":{"Node":"gpuf","Address":"127.0.0.1"},"Service":{"Port":9}}]`)
+		port := func(a string) string { return a[strings.LastIndex(a, ":")+1:] }
+		fmt.Fprintf(w, `[{"Node":{"Node":"gpud","Address":"127.0.0.1"},"Service":{"Port":%s}},{"Node":{"Node":"gpue","Address":"127.0.0.1"},"Service":{"Port":%s}},{"Node":{"Node":"gpuf","Address":"127.0.0.1"},"Service":{"Port":9}}]`, port(addrs[0]), port(addrs[1]))
 	}))
 	defer consul.Close()
 
@@ -266,9 +268,7 @@ func TestHistoryFromServeToCheck(t *testing.T) {
 	root, _ := filepath.Abs("../../testdata")
 	hist := filepath.Join(t.TempDir(), "state", "history.json")
 	src := []string{"--nvidia-smi", filepath.Join(root, "fake-nvidia-smi.sh"), "--proc", filepath.Join(root, "proc"), "--docker", docker, "--nomad-addr", nomadURL, "--node", "gpud", "--history", hist, "--interval", "1s"}
-	ln, _ := net.Listen("tcp", "127.0.0.1:0")
-	addr := ln.Addr().String()
-	ln.Close()
+	addr := freeAddr(t)
 	srv := exec.Command(bin, append([]string{"serve", "--listen", addr}, src...)...)
 	if err := srv.Start(); err != nil {
 		t.Fatal(err)
@@ -374,4 +374,15 @@ func TestPodmanNextToDocker(t *testing.T) {
 	if !strings.Contains(string(out), `"podman: `) {
 		t.Fatalf("explicit podman down: %s", out)
 	}
+}
+
+// freeAddr is a loopback address nothing listens on — never a fixed port, which a
+// gpuledger serve started by hand would already hold.
+func freeAddr(t *testing.T) string {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	return ln.Addr().String()
 }

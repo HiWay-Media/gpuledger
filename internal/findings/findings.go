@@ -248,3 +248,26 @@ func hot(e ledger.Entry, p Policy) string {
 	}
 	return ""
 }
+
+// Code is one finding code and the level it is emitted at under a policy.
+type Code struct {
+	Code  string `json:"code"`
+	Level Level  `json:"level"`
+}
+
+// Codes is every code Evaluate can emit, in the order the table in the README lists
+// them, with its level under p — so the metrics can expose a zero for each.
+func Codes(p Policy) []Code {
+	unmanaged := BAD
+	if p.AllowUnmanaged {
+		unmanaged = WARN
+	}
+	return []Code{
+		{"source-unavailable", ERROR}, {"unreserved-tenant", BAD}, {"unmanaged-tenant", unmanaged},
+		{"contended", WARN}, {"reserved-idle", WARN}, {"encoder-saturated", WARN}, {"hot", WARN},
+		{"idle", OK}, {"held", OK},
+	}
+}
+
+// Rank is the level as a number, OK 0 to ERROR 3 — the exit code's scale.
+func Rank(l Level) int { return rank[l] }

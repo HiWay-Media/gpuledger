@@ -37,6 +37,9 @@ internal/version/            Version, set by -ldflags at release
 testdata/                    nvidia-smi CSV fixtures, procfs cgroup fixtures, fake-nvidia-smi.sh
 integration/                 build tag `integration`: gpuledger against a real `nomad agent -dev` (ACLs,
                              fake nvidia/gpu device plugin, docker tasks, a second namespace, promtool)
+deploy/prometheus/           alert rules on gpuledger_findings and the state gauges; promtool unit tests beside them
+deploy/grafana/              the dashboard; internal/metrics/contract_test.go checks every metric and label
+                             the rules and the dashboard name against what Render exposes
 deploy/nomad/                the system job spec (raw_exec, artifact from the release) and the ACL
                              policy file the integration test gives gpuledger's token
 scripts/check-repo.sh        the repo's invariants (VERSION ↔ CHANGELOG, README statements, job spec); CI runs it
@@ -58,7 +61,9 @@ BACKLOG.md / ROADMAP.md      single source of truth (GL-n ids) / generated view
 2. **Never print what could carry a secret.** Process names are the binary alone
    (`nvidia.ParseProcesses`), the only environment variable read is
    `NVIDIA_VISIBLE_DEVICES`, container labels kept are `com.hashicorp.nomad.*` only,
-   metrics labels never carry a process name, a pid, an image or a path. The Nomad token
+   metrics labels never carry a process name, a pid, an image or a path — and are never
+   named `job` or `instance`, which Prometheus renames on ingestion (the Nomad job is
+   `nomad_job`). The Nomad token
    is read from an environment variable **named** by flag, never passed as a value.
 3. **A failing source is a finding, not a crash.** `collect()` records the error, the
    ledger is built from what was read, `source-unavailable` is ERROR, `gpuledger_up` is 0,

@@ -338,7 +338,8 @@ func newMux(snap func() ledger.Ledger, p findings.Policy) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/metrics", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
-		fmt.Fprint(w, metrics.Render(snap()))
+		l := snap()
+		fmt.Fprint(w, metrics.Render(l, findings.Evaluate(l, p), findings.Codes(p)))
 	})
 	mux.HandleFunc("/ledger", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

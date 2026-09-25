@@ -6,6 +6,25 @@ versions follow [SemVer](https://semver.org/). Items reference their `GL-n` back
 ## [Unreleased]
 
 ### Added
+- `gpuledger_findings{node,code,level}` — the count of each code at the last refresh,
+  with a zero for every code — and `gpuledger_worst_level` (0 OK … 3 ERROR) (GL-17).
+- `deploy/prometheus/gpuledger.rules.yml`: source down, unreserved and unmanaged
+  tenants, hot, thermal slowdown, reserved-idle over six hours; unit-tested with
+  `promtool test rules` in CI (GL-18).
+- `deploy/grafana/gpuledger.json`: states, findings, reserved-idle durations,
+  utilisation, memory, encoder sessions, temperature and the driver's margin, memory by
+  tenant, unreserved Nomad tenants. CI imports it into the latest Grafana; the Nomad
+  matrix runs every panel's query and every rule against a real Prometheus (GL-19).
+- A test that every metric and label the rules and the dashboard name exists in
+  `/metrics`.
+
+### Fixed
+- The tenant metrics' `job` label collided with the `job` Prometheus attaches to every
+  target, and was renamed `exported_job` on ingestion: the Nomad job never reached
+  Prometheus under its name. It is now `nomad_job`. Found by running the dashboard
+  against a real Prometheus.
+
+### Added
 - Podman, next to Docker: `--podman` (default: `/run/podman/podman.sock` when it exists,
   `off`, or an endpoint), `libpod-<id>` cgroups (conmon excluded), and — for Nomad's
   podman driver, which labels nothing without `extra_labels` — the allocation id from the
