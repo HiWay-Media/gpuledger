@@ -5,6 +5,14 @@ versions follow [SemVer](https://semver.org/). Items reference their `GL-n` back
 
 ## [Unreleased]
 
+### Added
+- Podman, next to Docker: `--podman` (default: `/run/podman/podman.sock` when it exists,
+  `off`, or an endpoint), `libpod-<id>` cgroups (conmon excluded), and — for Nomad's
+  podman driver, which labels nothing without `extra_labels` — the allocation id from the
+  container's name `<task>-<alloc id>`, trusted only when Nomad returns it; `allocFromName`
+  in the ledger JSON. The Nomad matrix runs a real `nomad-driver-podman` task on every
+  version (GL-16).
+
 ### Changed
 - `encoder-saturated` uses each card's published cap: none on Quadro RTX 4000, L4, T4
   and A10 ("Unrestricted" in NVIDIA's support matrix), 12 on GeForce. `--encoder-max`

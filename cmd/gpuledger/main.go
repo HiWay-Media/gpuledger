@@ -13,6 +13,7 @@
 //
 //	--nomad-addr       http://127.0.0.1:4646     --nomad-token-env NOMAD_TOKEN (name of the variable)
 //	--docker           unix:///var/run/docker.sock (or http://host:port)
+//	--podman           auto: unix:///run/podman/podman.sock when it exists; off; or an endpoint
 //	--nvidia-smi       nvidia-smi                --proc /proc
 //	--node             node name (default: hostname)
 //	--json             machine-readable output for ls and check
@@ -52,10 +53,10 @@ import (
 )
 
 type options struct {
-	nomadAddr, tokenEnv, docker, smi, proc, node, exitOn, listen string
-	jsonOut, allowUnmanaged, noIdle, noNomad, noDocker           bool
-	encoderMax, tempMax                                          int
-	interval                                                     time.Duration
+	nomadAddr, tokenEnv, docker, podman, smi, proc, node, exitOn, listen string
+	jsonOut, allowUnmanaged, noIdle, noNomad, noDocker                   bool
+	encoderMax, tempMax                                                  int
+	interval                                                             time.Duration
 	// fleet
 	sub, targets, consul, consulService, consulTokenEnv string
 	timeout                                             time.Duration
@@ -68,6 +69,7 @@ func parse(args []string) (string, options, error) {
 	fs.StringVar(&o.nomadAddr, "nomad-addr", envOr("NOMAD_ADDR", "http://127.0.0.1:4646"), "Nomad agent address")
 	fs.StringVar(&o.tokenEnv, "nomad-token-env", "NOMAD_TOKEN", "name of the environment variable holding the Nomad ACL token")
 	fs.StringVar(&o.docker, "docker", envOr("DOCKER_HOST", "unix:///var/run/docker.sock"), "Docker endpoint (unix:// or http://)")
+	fs.StringVar(&o.podman, "podman", "auto", "Podman endpoint (its Docker-compatible API); auto: "+podmanSocket+" when it exists; off")
 	fs.StringVar(&o.smi, "nvidia-smi", "nvidia-smi", "nvidia-smi binary")
 	fs.StringVar(&o.proc, "proc", "/proc", "procfs root, for pid → container resolution")
 	fs.StringVar(&o.node, "node", "", "node name (default: hostname)")
@@ -151,7 +153,7 @@ func usage() string {
   gpuledger fleet check  every node's findings, one policy, worst first (--json, --exit-on)
   gpuledger version
 
-Flags: --nomad-addr --nomad-token-env --docker --nvidia-smi --proc --node --json
+Flags: --nomad-addr --nomad-token-env --docker --podman --nvidia-smi --proc --node --json
        --exit-on --encoder-max --temp-max --allow-unmanaged --no-idle --no-nomad --no-docker
        --listen --interval --history
        --targets --consul --consul-service --consul-token-env --timeout
@@ -167,13 +169,24 @@ func collect(ctx context.Context, o options) ledger.Ledger {
 	}
 	in.GPUs, in.Processes = gpus, procs
 	if !o.noDocker {
-		dc := containers.NewClient(o.docker)
-		list, err := dc.List(ctx)
-		if err != nil {
-			in.Errors = append(in.Errors, "docker: "+err.Error())
+		// Docker and, when present, Podman: both speak the Engine API, and a node may
+		// run tasks under either driver.
+		type engine struct {
+			name   string
+			client *containers.Client
 		}
-		for _, c := range list {
-			in.Containers[c.ID] = c
+		engines := []engine{{"docker", containers.NewClient(o.docker)}}
+		if ep := podmanEndpoint(o.podman, podmanSocket); ep != "" {
+			engines = append(engines, engine{"podman", containers.NewClient(ep)})
+		}
+		for _, e := range engines {
+			list, err := e.client.List(ctx)
+			if err != nil {
+				in.Errors = append(in.Errors, e.name+": "+err.Error())
+			}
+			for _, c := range list {
+				in.Containers[c.ID] = c
+			}
 		}
 		in.ContainerOf = func(pid int) string {
 			id := containers.ContainerIDOf(o.proc, pid)
@@ -181,8 +194,11 @@ func collect(ctx context.Context, o options) ledger.Ledger {
 				return ""
 			}
 			if _, ok := in.Containers[id]; !ok {
-				if c, err := dc.Inspect(ctx, id); err == nil {
-					in.Containers[id] = c
+				for _, e := range engines {
+					if c, err := e.client.Inspect(ctx, id); err == nil {
+						in.Containers[id] = c
+						break
+					}
 				}
 			}
 			return id
@@ -385,4 +401,23 @@ func runFleet(ctx context.Context, o options) int {
 		}
 		return 0
 	}
+}
+
+// podmanSocket is where a rootful Podman serves its API (podman.socket).
+const podmanSocket = "/run/podman/podman.sock"
+
+// podmanEndpoint resolves --podman: "auto" is the socket when it exists and nothing
+// otherwise, so a node without Podman has no Podman error; "off" is nothing; anything
+// else is used as given, and a failure to read it is a source error.
+func podmanEndpoint(flag, socket string) string {
+	switch flag {
+	case "off", "":
+		return ""
+	case "auto":
+		if _, err := os.Stat(socket); err == nil {
+			return "unix://" + socket
+		}
+		return ""
+	}
+	return flag
 }

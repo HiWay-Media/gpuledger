@@ -3,6 +3,7 @@ package main
 import (
 	"io"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -94,5 +95,22 @@ func TestParseFleet(t *testing.T) {
 		if _, _, err := parse(args); err == nil {
 			t.Errorf("parse(%q) must fail", args)
 		}
+	}
+}
+
+func TestPodmanDefaultIsTheSocketWhenItExists(t *testing.T) {
+	if got := podmanEndpoint("auto", "/definitely/not/here.sock"); got != "" {
+		t.Fatalf("no socket, no podman: %q", got)
+	}
+	sock := t.TempDir() + "/podman.sock"
+	os.WriteFile(sock, nil, 0o600)
+	if got := podmanEndpoint("auto", sock); got != "unix://"+sock {
+		t.Fatalf("%q", got)
+	}
+	if got := podmanEndpoint("off", sock); got != "" {
+		t.Fatalf("off: %q", got)
+	}
+	if got := podmanEndpoint("http://h:1", sock); got != "http://h:1" {
+		t.Fatalf("explicit: %q", got)
 	}
 }

@@ -98,8 +98,15 @@ owes the driver side and moved to v0.2.0, with GL-1 and GL-11.
   support matrix (unrestricted on all four; the cap is GeForce's); thermal limits are
   not published per model, so they come from the driver — `temperature.gpu.tlimit` and
   the slowdown flags, as optional queries. <!-- gl: prio=low size=S labels=ledger,docs ver=main -->
-- [ ] **GL-16 — Podman and containerd**: the cgroup already names them; the inspect side
-  needs their APIs. <!-- gl: prio=low size=M labels=collector -->
+- [x] **GL-16 — Podman and containerd**: the cgroup already names them; the inspect side
+  needs their APIs. Podman shipped — its Engine-compatible API, `libpod` cgroups, the
+  allocation from the podman driver's container name; containerd split out as GL-23.
+  <!-- gl: prio=low size=M labels=collector ver=main -->
+- [ ] **GL-23 — containerd**: tasks under Nomad's community containerd driver. The API
+  is gRPC, which the standard library does not speak: either `ctr -n <ns> containers
+  info` as a read-only runner (the nvidia-smi pattern) or a dependency with its reason in
+  `CLAUDE.md`. Needs the driver's labels and cgroup layout observed first, as GL-16 did
+  for Podman. <!-- gl: prio=low size=M labels=collector -->
 
 ## v0.3.0 — Watched, not asked <!-- ms: phase=next -->
 

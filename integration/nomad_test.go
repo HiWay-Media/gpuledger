@@ -115,7 +115,7 @@ func freePort(t *testing.T) int {
 
 // start runs the agent with ACLs on, the fake GPU plugin and the docker driver's
 // extra_labels set the way the README tells operators to set them.
-func start(t *testing.T) *agent {
+func start(t *testing.T, podmanDriver ...string) *agent {
 	nomadBin, plugin := os.Getenv("NOMAD_BIN"), os.Getenv("GPULEDGER_DEVICE_PLUGIN")
 	if nomadBin == "" || plugin == "" {
 		t.Skip("NOMAD_BIN and GPULEDGER_DEVICE_PLUGIN are required")
@@ -147,6 +147,21 @@ plugin "docker" {
 }`
 	if !labels {
 		docker = ""
+	}
+	// The podman driver, when asked for, without extra_labels: the case where the
+	// allocation is only in the container's name.
+	for _, drv := range podmanDriver {
+		b, err := os.ReadFile(drv)
+		if err != nil {
+			t.Fatal(err)
+		}
+		os.WriteFile(filepath.Join(plugins, "nomad-driver-podman"), b, 0o755)
+		docker += `
+plugin "nomad-driver-podman" {
+  config {
+    socket_path = "unix:///run/podman/podman.sock"
+  }
+}`
 	}
 	port := freePort(t)
 	cfg := fmt.Sprintf(`
@@ -612,4 +627,92 @@ func atoi(s string) int {
 	n := 0
 	fmt.Sscan(s, &n)
 	return n
+}
+
+// TestPodmanAgainstARealNomad runs a task under Nomad's podman driver, with no
+// extra_labels, and checks gpuledger finds its allocation from the container's name
+// and calls the card held. Skipped where the driver does not load on this Nomad.
+func TestPodmanAgainstARealNomad(t *testing.T) {
+	drv := os.Getenv("PODMAN_DRIVER")
+	if drv == "" {
+		t.Skip("PODMAN_DRIVER is required")
+	}
+	a := start(t, drv)
+	usable := false
+	for end := time.Now().Add(30 * time.Second); time.Now().Before(end) && !usable; time.Sleep(time.Second) {
+		var nodes []struct{ ID string }
+		a.do("GET", "/v1/nodes", a.mgmt, nil, &nodes)
+		if len(nodes) == 0 {
+			continue
+		}
+		var node struct {
+			Drivers map[string]struct{ Detected, Healthy bool }
+		}
+		a.do("GET", "/v1/node/"+nodes[0].ID, a.mgmt, nil, &node)
+		usable = node.Drivers["podman"].Detected && node.Drivers["podman"].Healthy
+	}
+	if !usable {
+		t.Skip("nomad-driver-podman is not detected and healthy on this Nomad version")
+	}
+	job := gpuJob("pod", "default")
+	task := job["Job"].(map[string]any)["TaskGroups"].([]any)[0].(map[string]any)["Tasks"].([]any)[0].(map[string]any)
+	task["Driver"] = "podman"
+	task["Config"] = map[string]any{"image": "docker.io/library/" + image, "command": "sleep", "args": []string{"3600"}}
+	a.must("POST", "/v1/jobs", job, nil)
+	t.Cleanup(func() {
+		a.do("DELETE", "/v1/job/pod?purge=true", a.mgmt, nil, nil)
+		time.Sleep(3 * time.Second)
+	})
+	pod, gpu := a.running("pod", "default")
+	name := "pod-" + pod.ID
+	pid := sh(t, "podman", "inspect", "-f", "{{.State.Pid}}", name)
+	t.Logf("podman labels of %s: %s", name, sh(t, "podman", "inspect", "-f", "{{json .Config.Labels}}", name))
+	cg, _ := os.ReadFile("/proc/" + pid + "/cgroup")
+	t.Logf("cgroup of the podman task (pid %s): %s", pid, bytes.TrimSpace(cg))
+
+	dir := t.TempDir()
+	var qg strings.Builder
+	for i, g := range gpus {
+		fmt.Fprintf(&qg, "%d, %s, Fake RTX, 00000000:0%d:00.0, 100, 8192, 5, 1, 40, 30.5, 0, 0\n", i, g, i+1)
+	}
+	os.WriteFile(filepath.Join(dir, "gpu.csv"), []byte(qg.String()), 0o644)
+	os.WriteFile(filepath.Join(dir, "apps.csv"), []byte(fmt.Sprintf("%s, %s, 256, ffmpeg\n", gpu, pid)), 0o644)
+	smi := filepath.Join(dir, "nvidia-smi")
+	os.WriteFile(smi, []byte(fmt.Sprintf("#!/bin/sh\ncase \"$1\" in --query-gpu=*) cat %q ;; *) cat %q ;; esac\n", filepath.Join(dir, "gpu.csv"), filepath.Join(dir, "apps.csv"))), 0o755)
+	bin := os.Getenv("GPULEDGER_BIN")
+	if bin == "" {
+		bin = filepath.Join(dir, "gpuledger")
+		sh(t, "go", "build", "-o", bin, "../cmd/gpuledger")
+	}
+	policy, _ := os.ReadFile("../deploy/nomad/gpuledger.policy.hcl")
+	tok := a.token("gpuledger", string(policy))
+	cmd := exec.Command(bin, "ls", "--json", "--nvidia-smi", smi, "--podman", "unix:///run/podman/podman.sock", "--nomad-addr", a.addr, "--nomad-token-env", "GL_IT_TOKEN", "--node", "it")
+	cmd.Env = append(os.Environ(), "GL_IT_TOKEN="+tok)
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("%v %s", err, out)
+	}
+	var l struct {
+		Entries []struct {
+			UUID, State string
+			Tenants     []struct {
+				Kind, AllocID           string
+				Reserved, AllocFromName bool
+			}
+		}
+		Errors []string
+	}
+	if err := json.Unmarshal(out, &l); err != nil || len(l.Errors) != 0 {
+		t.Fatalf("%v %s", err, out)
+	}
+	for _, e := range l.Entries {
+		if e.UUID != gpu {
+			continue
+		}
+		if e.State != "held" || len(e.Tenants) != 1 || e.Tenants[0].Kind != "nomad" || !e.Tenants[0].Reserved || e.Tenants[0].AllocID != pod.ID || !e.Tenants[0].AllocFromName {
+			t.Errorf("the podman task's GPU:\n%s", out)
+		}
+		return
+	}
+	t.Errorf("no entry for %s:\n%s", gpu, out)
 }

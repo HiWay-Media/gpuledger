@@ -19,7 +19,8 @@ artifacts sit beside it.
 ```
 cmd/gpuledger/main.go        the CLI: ls · check · serve · fleet ls|check · version; flags; collect() joins the sources
 internal/nvidia/             nvidia-smi runner and CSV parsers (GPUQuery, ProcessQuery are the exact field lists)
-internal/containers/         cgroup → container id; Docker Engine client (unix socket or http); Nomad labels
+internal/containers/         cgroup → container id (docker, containerd, libpod); Engine API client for Docker
+                             and Podman (unix socket or http); Nomad labels, else the alloc id from the name
 internal/nomad/              agent self → node id → node allocations → GPU reservations; token from an env var by name
 internal/ledger/             the pure join: Entry per GPU with Reservations, Tenants and State (Classify:
                              free|reserved-idle|held|unaccounted); Kind nomad|docker|host
@@ -87,6 +88,12 @@ BACKLOG.md / ROADMAP.md      single source of truth (GL-n ids) / generated view
   `extra_labels`, which Nomad 1.0 does not have (the agent refuses the config). The
   task's cgroup is `/system.slice/docker-<id>.scope`, `/nomad.slice/docker-<id>.scope`
   on 1.3 – 1.6. Nomad names its pause container `nomad_init_<alloc>`.
+- **Nomad podman driver** (nomad-driver-podman 0.6.5, observed on Nomad 1.0.18 – 2.0.7,
+  2026-09-25): no labels at all unless `extra_labels` is set — then `alloc_id` and the
+  listed ones, same names as the docker driver (source: driver.go); the container is named
+  `<task>-<alloc id>`; its cgroup is `/nomad.slice/libpod-<id>.scope/container`; conmon
+  sits in `libpod-conmon-<id>.scope`. An alloc id from the name counts only when Nomad
+  returns that allocation.
 - **Nomad ACLs** (same runs): `/v1/agent/self` needs `agent:read`, `/v1/node/<id>/allocations`
   needs `node:read` and returns only the allocations in namespaces where the token has
   `read-job`, with no error. `deploy/nomad/gpuledger.policy.hcl` is the tested minimum.

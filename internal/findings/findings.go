@@ -97,7 +97,11 @@ func Evaluate(l ledger.Ledger, p Policy) []Finding {
 				} else {
 					ns = fmt.Sprintf("%q", ns)
 				}
-				out = append(out, Finding{Level: ERROR, Code: "source-unavailable", Node: l.Node, GPU: g, Message: fmt.Sprintf("Nomad did not return allocation %s of task %s/%s (container %s): the token needs read-job on namespace %s — whether this GPU is reserved for it cannot be told", short(t.AllocID), t.JobName, t.TaskName, t.Container, ns)})
+				from := ""
+				if t.AllocFromName {
+					from = ", the allocation id read from the container's name"
+				}
+				out = append(out, Finding{Level: ERROR, Code: "source-unavailable", Node: l.Node, GPU: g, Message: fmt.Sprintf("Nomad did not return allocation %s of task %s/%s (container %s%s): the token needs read-job on namespace %s — whether this GPU is reserved for it cannot be told", short(t.AllocID), t.JobName, t.TaskName, t.Container, from, ns)})
 			case t.Kind == ledger.KindNomad && !t.Reserved:
 				allReserved = false
 				out = append(out, Finding{Level: BAD, Code: "unreserved-tenant", Node: l.Node, GPU: g, Message: fmt.Sprintf("Nomad task %s/%s (alloc %s, container %s) uses this GPU but was not allocated it — check NVIDIA_VISIBLE_DEVICES and the job's device stanza", t.JobName, t.TaskName, short(t.AllocID), t.Container)})
