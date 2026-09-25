@@ -87,11 +87,23 @@ curl -s http://<node>:9877/metrics | grep gpuledger_gpu_tenants
 
 Metrics: `gpuledger_up`, `gpuledger_gpu_info{model,bus}`, `_utilization_percent`,
 `_memory_used_bytes`, `_memory_total_bytes`, `_temperature_celsius`, `_power_watts`,
-`_encoder_sessions`, `_tenants`, `_reservations`, and per tenant
+`_encoder_sessions`, `_tenants`, `_reservations`, `gpuledger_gpu_state{state}` and, with
+a history, `gpuledger_gpu_state_since_timestamp_seconds{state}` — alert on
+`time() - gpuledger_gpu_state_since_timestamp_seconds{state="reserved-idle"} > 6*3600` —
+and per tenant
 `gpuledger_tenant_memory_bytes{kind,container,container_id,job,task,alloc,namespace}` and
 `gpuledger_tenant_reserved`. Labels carry names and ids, never a process name, a pid, an
 image or a path. `/ledger` and `/findings` return the same as JSON; `/healthz` is 503,
 with the failing sources in the body, while a source is unreadable.
+
+**Since when.** With `--history FILE`, `serve` remembers each GPU's state — free,
+reserved-idle, held or unaccounted — and when it entered it, so `reserved-idle` says
+*for 6h12m*, the number a scheduling decision needs. One record per GPU, no tenant in
+it; written atomically each refresh. `ls` and `check` with the same flag read the file
+and never write it. A silence longer than three refresh intervals, or a refresh where a
+source failed, restarts the clock rather than claim a continuity nobody saw. The system
+job keeps the file in its allocation's data dir on a sticky disk, so it survives a
+deploy on the same node.
 
 **The fleet**, from anywhere that reaches the nodes: `gpuledger fleet` reads every
 node's `/ledger` — found through Consul, where the system job registers as `gpuledger`,
@@ -133,7 +145,8 @@ Consul token comes from the variable named by `--consul-token-env` (`CONSUL_HTTP
 `--nomad-token-env NOMAD_TOKEN` — the **name** of the variable holding the ACL token, so
 the token is never on a command line — `--docker unix:///var/run/docker.sock`,
 `--nvidia-smi`, `--proc /proc`, `--node`, `--json`, `--no-nomad`, `--no-docker`,
-`--encoder-max`, `--temp-max`, `--allow-unmanaged`, `--no-idle`, `--listen`, `--interval`;
+`--encoder-max`, `--temp-max`, `--allow-unmanaged`, `--no-idle`, `--listen`, `--interval`,
+`--history`;
 for `fleet`, `--targets`, `--consul`, `--consul-service`, `--consul-token-env`, `--timeout`.
 
 **With ACLs**, the token needs [`deploy/nomad/gpuledger.policy.hcl`](deploy/nomad/gpuledger.policy.hcl):
@@ -175,7 +188,7 @@ or, on 1.3 – 1.6, `/nomad.slice/docker-<id>.scope`.
 ## What it does not do
 
 - Write anything: no `nomad`, `docker` or `nvidia-smi` command that changes state is ever
-  invoked. Reads only.
+  invoked. Reads only — the one file it writes is its own `--history`, when asked to.
 - Bind NVML. Shelling out to `nvidia-smi`'s documented CSV queries keeps the binary
   static and the driver dependency out of the build; the cost is one process spawn per
   refresh, tens of milliseconds.

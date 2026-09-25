@@ -37,9 +37,9 @@ job "gpuledger" {
   group "ledger" {
     # The state history (--history) lives in the allocation's data dir; sticky keeps it
     # across job updates on the same node, so "reserved-idle for 6h" survives a deploy.
+    # No size: Nomad's default (300 MB) — it must exceed the task's log storage (100 MB).
     ephemeral_disk {
       sticky = true
-      size   = 50
     }
 
     network {
