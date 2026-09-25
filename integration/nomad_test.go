@@ -511,6 +511,36 @@ func metrics(t *testing.T, bin, smi, addr, token, promtool string) {
 	if !bytes.Contains(body, []byte(`gpuledger_up{node="it"} 1`)) {
 		t.Errorf("up must be 1:\n%s", body)
 	}
+	// The fleet view over this node's /ledger: the per-job counts come from real
+	// allocations, in both namespaces.
+	fl, err := exec.Command(bin, "fleet", "ls", "--json", "--targets", listen).Output()
+	if err != nil {
+		t.Fatalf("fleet ls: %v %s", err, fl)
+	}
+	var fs struct {
+		Summary struct {
+			Total struct{ GPUs, Held, ReservedIdle, Unaccounted, Free int }
+			Jobs  []struct {
+				Namespace, Job string
+				Reserved, Held int
+			}
+		}
+	}
+	if err := json.Unmarshal(fl, &fs); err != nil {
+		t.Fatalf("%v %s", err, fl)
+	}
+	jobs := map[string][2]int{}
+	for _, j := range fs.Summary.Jobs {
+		jobs[j.Namespace+"/"+j.Job] = [2]int{j.Reserved, j.Held}
+	}
+	if tot := fs.Summary.Total; tot.GPUs != 3 || tot.Held != 1 || tot.ReservedIdle != 1 || tot.Unaccounted != 1 || jobs["default/enc"] != [2]int{1, 1} || jobs["video/idle"] != [2]int{1, 0} {
+		t.Errorf("fleet ls against the real node:\n%s", fl)
+	}
+
+	if consulBin := os.Getenv("CONSUL_BIN"); consulBin != "" {
+		viaConsul(t, bin, consulBin, listen)
+	}
+
 	pc := exec.Command(promtool, "check", "metrics")
 	pc.Stdin = bytes.NewReader(body)
 	if out, err := pc.CombinedOutput(); err != nil {
@@ -533,4 +563,40 @@ func unmountUnder(dir string) {
 	for i := len(points) - 1; i >= 0; i-- {
 		exec.Command("umount", "-l", points[i]).Run()
 	}
+}
+
+// viaConsul registers the serving node in a real Consul dev agent, with the HTTP check
+// on /healthz the system job declares, and reads the fleet through Consul's health API.
+func viaConsul(t *testing.T, bin, consulBin, listen string) {
+	port := freePort(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cmd := exec.CommandContext(ctx, consulBin, "agent", "-dev", "-http-port", fmt.Sprint(port), "-dns-port", "-1", "-grpc-port", "-1")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	addr := fmt.Sprintf("http://127.0.0.1:%d", port)
+	host, p, _ := net.SplitHostPort(listen)
+	reg, _ := json.Marshal(map[string]any{"Name": "gpuledger", "Address": host, "Port": atoi(p), "Check": map[string]any{"HTTP": "http://" + listen + "/healthz", "Interval": "1s"}})
+	eventually(t, "Consul registration", 30*time.Second, func() (bool, string) {
+		req, _ := http.NewRequest("PUT", addr+"/v1/agent/service/register", bytes.NewReader(reg))
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return false, err.Error()
+		}
+		res.Body.Close()
+		return res.StatusCode == 200, res.Status
+	})
+	var out []byte
+	eventually(t, "the node through Consul's passing filter", 30*time.Second, func() (bool, string) {
+		out, _ = exec.Command(bin, "fleet", "ls", "--json", "--consul", addr).Output()
+		return bytes.Contains(out, []byte(`"gpus":3`)) && !bytes.Contains(out, []byte(`"unreachable"`)), string(out)
+	})
+	t.Logf("fleet via Consul: %s", bytes.TrimSpace(out))
+}
+
+func atoi(s string) int {
+	n := 0
+	fmt.Sscan(s, &n)
+	return n
 }

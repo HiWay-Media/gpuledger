@@ -130,8 +130,13 @@ func Evaluate(l ledger.Ledger, p Policy) []Finding {
 			out = append(out, Finding{Level: OK, Code: "held", Node: l.Node, GPU: g, Message: fmt.Sprintf("%d tenant(s), all reserved by Nomad, %d%% util", len(e.Tenants), e.UtilizationPct)})
 		}
 	}
-	sort.SliceStable(out, func(i, j int) bool { return rank[out[i].Level] > rank[out[j].Level] })
+	Sort(out)
 	return out
+}
+
+// Sort orders findings worst first, keeping the order within a level.
+func Sort(fs []Finding) {
+	sort.SliceStable(fs, func(i, j int) bool { return rank[fs[i].Level] > rank[fs[j].Level] })
 }
 
 // Worst returns the highest level present, OK for none.

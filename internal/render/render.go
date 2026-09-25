@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/hiway-media/gpuledger/internal/findings"
+	"github.com/hiway-media/gpuledger/internal/fleet"
 	"github.com/hiway-media/gpuledger/internal/ledger"
 )
 
@@ -87,6 +88,55 @@ func Findings(fs []findings.Finding) string {
 			g = f.Node
 		}
 		fmt.Fprintf(&b, "%s %-18s %-22s %s\n", glyph[f.Level], f.Code, g, f.Message)
+	}
+	fmt.Fprintf(&b, "\n%d findings: %d OK, %d WARN, %d BAD, %d ERROR\n", len(fs), tally[findings.OK], tally[findings.WARN], tally[findings.BAD], tally[findings.ERROR])
+	return b.String()
+}
+
+// Fleet prints the per-node table with the fleet's total as its last row, then the
+// per-job table: GPUs each job was reserved and how many of those it holds.
+func Fleet(s fleet.Summary) string {
+	nodes := len(s.Nodes)
+	head := fmt.Sprintf("gpuledger fleet · %d node(s)", nodes)
+	if s.Total.Unreachable > 0 {
+		head += fmt.Sprintf(", %d unreachable", s.Total.Unreachable)
+	}
+	head += fmt.Sprintf(" · %d GPU(s)", s.Total.GPUs)
+	row := func(n fleet.NodeSummary) []string {
+		if n.Err != "" {
+			return []string{n.Node, "—", "—", "—", "—", "—", "unreachable: " + n.Err}
+		}
+		return []string{n.Node, fmt.Sprint(n.GPUs), fmt.Sprint(n.Held), fmt.Sprint(n.ReservedIdle), fmt.Sprint(n.Unaccounted), fmt.Sprint(n.Free), fmt.Sprintf("%d/%d MiB", n.MemoryUsedMiB, n.MemoryTotalMiB)}
+	}
+	rows := [][]string{}
+	for _, n := range s.Nodes {
+		rows = append(rows, row(n))
+	}
+	rows = append(rows, row(s.Total))
+	out := head + "\n" + table([]string{"node", "gpus", "held", "reserved-idle", "unaccounted", "free", "memory"}, rows)
+	if len(s.Jobs) > 0 {
+		jobs := [][]string{}
+		for _, j := range s.Jobs {
+			jobs = append(jobs, []string{j.Namespace + "/" + j.Job, fmt.Sprint(j.Reserved), fmt.Sprint(j.Held)})
+		}
+		out += "\n\n" + table([]string{"job", "reserved", "held"}, jobs)
+	}
+	return out
+}
+
+// FleetFindings is Findings with the node in its own column.
+func FleetFindings(fs []findings.Finding) string {
+	w := 6
+	for _, f := range fs {
+		if n := len([]rune(f.Node)); n > w {
+			w = n
+		}
+	}
+	var b strings.Builder
+	tally := map[findings.Level]int{}
+	for _, f := range fs {
+		tally[f.Level]++
+		fmt.Fprintf(&b, "%s %-18s %-*s %-22s %s\n", glyph[f.Level], f.Code, w, f.Node, f.GPU, f.Message)
 	}
 	fmt.Fprintf(&b, "\n%d findings: %d OK, %d WARN, %d BAD, %d ERROR\n", len(fs), tally[findings.OK], tally[findings.WARN], tally[findings.BAD], tally[findings.ERROR])
 	return b.String()

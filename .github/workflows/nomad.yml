@@ -5,6 +5,8 @@ name: Nomad matrix
 # HiWay farm runs. No GPU: Nomad's example device plugin, rebuilt with vendor "nvidia"
 # and type "gpu", exposes files named like GPU UUIDs; the scheduler, the allocation API,
 # ACLs and the docker driver's labels are Nomad's own. See integration/nomad_test.go.
+# A Consul dev agent (latest GA) checks `fleet` through the health API the system job
+# registers in.
 #
 # Weekly as well as on every change, so a new Nomad minor joins the matrix by itself.
 
@@ -116,6 +118,17 @@ jobs:
           curl -fsSLO "https://releases.hashicorp.com/nomad/$V/nomad_${V}_SHA256SUMS"
           grep "nomad_${V}_linux_amd64.zip" "nomad_${V}_SHA256SUMS" | sha256sum -c -
           unzip -q "nomad_${V}_linux_amd64.zip" && chmod +x nomad-device-fake nomad && ./nomad version
+      - name: Consul, latest GA, checksum verified
+        run: |
+          cd bin
+          V=$(curl -fsSL https://releases.hashicorp.com/consul/index.json | node -e '
+            const vs = Object.keys(JSON.parse(require("fs").readFileSync(0)).versions).filter((s) => /^\d+\.\d+\.\d+$/.test(s))
+            vs.sort((x, y) => x.localeCompare(y, "en", { numeric: true }))
+            console.log(vs.at(-1))')
+          curl -fsSLO "https://releases.hashicorp.com/consul/$V/consul_${V}_linux_amd64.zip"
+          curl -fsSLO "https://releases.hashicorp.com/consul/$V/consul_${V}_SHA256SUMS"
+          grep "consul_${V}_linux_amd64.zip" "consul_${V}_SHA256SUMS" | sha256sum -c -
+          unzip -q -o "consul_${V}_linux_amd64.zip" consul && ./consul version
       - name: promtool
         env:
           GH_TOKEN: ${{ github.token }}
@@ -135,4 +148,5 @@ jobs:
                GPULEDGER_DEVICE_PLUGIN="$GITHUB_WORKSPACE/bin/nomad-device-fake" \
                GPULEDGER_BIN="$GITHUB_WORKSPACE/bin/gpuledger" \
                PROMTOOL=/tmp/promtool \
+               CONSUL_BIN="$GITHUB_WORKSPACE/bin/consul" \
                "$GITHUB_WORKSPACE/bin/it.test" -test.v -test.count=1 -test.timeout=15m

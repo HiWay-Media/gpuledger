@@ -70,3 +70,29 @@ func TestHandlers(t *testing.T) {
 		t.Fatalf("unknown path: %d", code)
 	}
 }
+
+func TestParseFleet(t *testing.T) {
+	t.Setenv("CONSUL_HTTP_ADDR", "")
+	cmd, o, err := parse([]string{"fleet", "--targets", "gpud:9877"})
+	if err != nil || cmd != "fleet" || o.sub != "ls" || o.targets != "gpud:9877" || o.consulService != "gpuledger" || o.consulTokenEnv != "CONSUL_HTTP_TOKEN" || o.timeout <= 0 {
+		t.Fatalf("%v %q %+v", err, cmd, o)
+	}
+	if _, o, err = parse([]string{"fleet", "check", "--consul", "127.0.0.1:8500", "--exit-on", "bad"}); err != nil || o.sub != "check" || o.consul != "127.0.0.1:8500" {
+		t.Fatalf("%v %+v", err, o)
+	}
+	t.Setenv("CONSUL_HTTP_ADDR", "consul:8500")
+	if _, o, err = parse([]string{"fleet"}); err != nil || o.consul != "consul:8500" {
+		t.Fatalf("CONSUL_HTTP_ADDR is the default: %v %+v", err, o)
+	}
+	t.Setenv("CONSUL_HTTP_ADDR", "")
+	for _, args := range [][]string{
+		{"fleet"},                                // nowhere to look
+		{"fleet", "rm", "--targets", "a:1"},      // not a fleet command
+		{"fleet", "ls", "x", "--targets", "a:1"}, // stray argument
+		{"fleet", "--targets", "a:1", "--timeout", "0"},
+	} {
+		if _, _, err := parse(args); err == nil {
+			t.Errorf("parse(%q) must fail", args)
+		}
+	}
+}

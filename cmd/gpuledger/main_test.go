@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -183,5 +184,74 @@ func TestVersionAndUsage(t *testing.T) {
 	}
 	if err := exec.Command(bin, "bogus").Run(); err == nil {
 		t.Fatal("unknown command must fail")
+	}
+}
+
+// Two nodes served by the real binary, one dead, found through a fake Consul.
+func TestFleetOverRealServeProcesses(t *testing.T) {
+	bin := build(t)
+	docker, nomadURL := fakes(t)
+	root, _ := filepath.Abs("../../testdata")
+	var addrs []string
+	for i, node := range []string{"gpud", "gpue"} {
+		addr := fmt.Sprintf("127.0.0.1:%d", 19880+i)
+		cmd := exec.Command(bin, "serve", "--listen", addr, "--nvidia-smi", filepath.Join(root, "fake-nvidia-smi.sh"), "--proc", filepath.Join(root, "proc"), "--docker", docker, "--nomad-addr", nomadURL, "--node", node)
+		if err := cmd.Start(); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { cmd.Process.Kill() })
+		addrs = append(addrs, addr)
+		for j := 0; j < 50; j++ {
+			if res, err := http.Get("http://" + addr + "/healthz"); err == nil {
+				res.Body.Close()
+				break
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
+	consul := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/health/service/gpuledger" {
+			http.NotFound(w, r)
+			return
+		}
+		fmt.Fprintf(w, `[{"Node":{"Node":"gpud","Address":"127.0.0.1"},"Service":{"Port":19880}},{"Node":{"Node":"gpue","Address":"127.0.0.1"},"Service":{"Port":19881}},{"Node":{"Node":"gpuf","Address":"127.0.0.1"},"Service":{"Port":9}}]`)
+	}))
+	defer consul.Close()
+
+	out, err := exec.Command(bin, "fleet", "ls", "--consul", consul.URL, "--timeout", "2s").Output()
+	if err != nil {
+		t.Fatalf("%v %s", err, out)
+	}
+	for _, want := range []string{"gpuledger fleet · 3 node(s), 1 unreachable · 4 GPU(s)", "│ gpud  │ 2    │ 0    │ 1             │ 1           │ 0", "│ gpuf  │ —", "│ fleet │ 4    │ 0    │ 2             │ 2           │ 0", "default/gpu-gpud-restreamer", "tngrm-video-worker-gpud"} {
+		if !strings.Contains(string(out), want) {
+			t.Errorf("missing %q in\n%s", want, out)
+		}
+	}
+
+	cmd := exec.Command(bin, "fleet", "check", "--json", "--exit-on", "bad", "--targets", strings.Join(addrs, ","))
+	js, err := cmd.Output()
+	code := 0
+	if ee, ok := err.(*exec.ExitError); ok {
+		code = ee.ExitCode()
+	}
+	var r struct {
+		Worst    string
+		Findings []struct{ Level, Code, Node string }
+	}
+	if err := json.Unmarshal(js, &r); err != nil || r.Worst != "BAD" || code != 2 {
+		t.Fatalf("worst BAD, exit 2 under --exit-on bad: %v %d %s", err, code, js)
+	}
+	nodes := map[string]bool{}
+	for _, f := range r.Findings {
+		nodes[f.Node] = true
+	}
+	if !nodes["gpud"] || !nodes["gpue"] {
+		t.Fatalf("findings from both nodes: %s", js)
+	}
+
+	// Consul down is a finding, not a crash.
+	out, _ = exec.Command(bin, "fleet", "check", "--consul", "http://127.0.0.1:9").Output()
+	if !strings.Contains(string(out), "source-unavailable") || !strings.Contains(string(out), "consul") {
+		t.Fatalf("%s", out)
 	}
 }
