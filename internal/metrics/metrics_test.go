@@ -108,3 +108,22 @@ func TestStateAndSinceGauges(t *testing.T) {
 		t.Error("no since without history")
 	}
 }
+
+func TestThermalGaugesOnlyWhenTheDriverReportsThem(t *testing.T) {
+	m, on := 19, true
+	out := Render(ledger.Ledger{Node: "gpud", Entries: []ledger.Entry{
+		{GPU: nvidia.GPU{Index: 0, UUID: "GPU-a", ThermalMarginC: &m, ThermalSlowdown: &on}},
+		{GPU: nvidia.GPU{Index: 1, UUID: "GPU-b"}},
+	}})
+	for _, want := range []string{
+		`gpuledger_gpu_thermal_margin_celsius{node="gpud",gpu="0",uuid="GPU-a"} 19`,
+		`gpuledger_gpu_thermal_slowdown{node="gpud",gpu="0",uuid="GPU-a"} 1`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %s", want)
+		}
+	}
+	if strings.Contains(out, `gpuledger_gpu_thermal_margin_celsius{node="gpud",gpu="1"`) || strings.Contains(out, `gpuledger_gpu_thermal_slowdown{node="gpud",gpu="1"`) {
+		t.Error("no value, no series: 0 would read as a card at its limit")
+	}
+}

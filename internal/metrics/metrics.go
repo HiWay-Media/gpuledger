@@ -44,6 +44,8 @@ func Render(l ledger.Ledger) string {
 	temp := fam("gpuledger_gpu_temperature_celsius", "GPU temperature.")
 	power := fam("gpuledger_gpu_power_watts", "GPU power draw.")
 	enc := fam("gpuledger_gpu_encoder_sessions", "Active NVENC sessions.")
+	margin := fam("gpuledger_gpu_thermal_margin_celsius", "Degrees left before the card's own slowdown temperature, as the driver reports it.")
+	slowdown := fam("gpuledger_gpu_thermal_slowdown", "1 while hardware or software thermal slowdown is active.")
 	tenants := fam("gpuledger_gpu_tenants", "Distinct holders of the GPU (containers or host).")
 	reservations := fam("gpuledger_gpu_reservations", "Nomad allocations the GPU is allocated to.")
 	tmem := fam("gpuledger_tenant_memory_bytes", "Memory a tenant holds on a GPU.")
@@ -65,6 +67,16 @@ func Render(l ledger.Ledger) string {
 		temp.add(g, e.TemperatureC)
 		power.add(g, fmt.Sprintf("%g", e.PowerW))
 		enc.add(g, e.EncoderSessions)
+		if e.ThermalMarginC != nil {
+			margin.add(g, *e.ThermalMarginC)
+		}
+		if e.ThermalSlowdown != nil {
+			v := 0
+			if *e.ThermalSlowdown {
+				v = 1
+			}
+			slowdown.add(g, v)
+		}
 		tenants.add(g, len(e.Tenants))
 		reservations.add(g, len(e.Reservations))
 		st := e.State
@@ -94,7 +106,7 @@ func Render(l ledger.Ledger) string {
 		}
 	}
 	var b strings.Builder
-	for _, f := range []*family{up, info, util, used, total, temp, power, enc, tenants, reservations, state, since, tmem, tres} {
+	for _, f := range []*family{up, info, util, used, total, temp, power, enc, margin, slowdown, tenants, reservations, state, since, tmem, tres} {
 		fmt.Fprintf(&b, "# HELP %s %s\n# TYPE %s gauge\n", f.name, f.help, f.name)
 		for _, s := range f.samples {
 			b.WriteString(s + "\n")

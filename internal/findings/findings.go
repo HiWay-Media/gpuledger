@@ -7,6 +7,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/hiway-media/gpuledger/internal/cards"
 	"github.com/hiway-media/gpuledger/internal/ledger"
 )
 
@@ -32,15 +33,21 @@ type Finding struct {
 
 // Policy holds the thresholds; every one has a defensible default and a flag.
 type Policy struct {
-	EncoderMax     int  // encoder sessions at or above which the GPU counts as saturated
+	EncoderMax     int  // encoder sessions at or above which the GPU counts as saturated; 0: the card's own cap, <0: off
 	TempMaxC       int  // temperature at or above which the GPU counts as hot
 	AllowUnmanaged bool // demote unmanaged tenants from BAD to WARN
 	IdleIsFinding  bool // report a GPU with no tenant and no reservation (capacity)
 }
 
-// Default is what ships: NVENC session limits vary by card, 8 is conservative for
-// datacenter parts; 85 °C is where consumer and Quadro parts start throttling.
-var Default = Policy{EncoderMax: 8, TempMaxC: 85, AllowUnmanaged: false, IdleIsFinding: true}
+// Default is what ships. EncoderMax 0 takes each card's cap from NVIDIA's support
+// matrix (internal/cards): none on Quadro, L4, T4, A10 — "Unrestricted" — and the
+// driver's cap on GeForce. TempMaxC applies only where the driver reports neither a
+// thermal margin nor a slowdown state; 85 °C is where Quadro parts start throttling.
+var Default = Policy{EncoderMax: 0, TempMaxC: 85, AllowUnmanaged: false, IdleIsFinding: true}
+
+// ThermalMarginMinC is the margin to the card's own slowdown temperature, as the driver
+// reports it, at or below which the card counts as hot.
+const ThermalMarginMinC = 5
 
 func gpuLabel(e ledger.Entry) string {
 	u := e.UUID
@@ -121,11 +128,11 @@ func Evaluate(l ledger.Ledger, p Policy) []Finding {
 			}
 			out = append(out, Finding{Level: WARN, Code: "contended", Node: l.Node, GPU: g, Message: fmt.Sprintf("%d tenants share this GPU: %v", len(e.Tenants), names)})
 		}
-		if p.EncoderMax > 0 && e.EncoderSessions >= p.EncoderMax {
-			out = append(out, Finding{Level: WARN, Code: "encoder-saturated", Node: l.Node, GPU: g, Message: fmt.Sprintf("%d encoder sessions (limit %d), %.0f fps average", e.EncoderSessions, p.EncoderMax, e.EncoderFPS)})
+		if limit, why := encoderLimit(e, p); limit > 0 && e.EncoderSessions >= limit {
+			out = append(out, Finding{Level: WARN, Code: "encoder-saturated", Node: l.Node, GPU: g, Message: fmt.Sprintf("%d encoder sessions, at the limit of %d (%s), %.0f fps average", e.EncoderSessions, limit, why, e.EncoderFPS)})
 		}
-		if p.TempMaxC > 0 && e.TemperatureC >= p.TempMaxC {
-			out = append(out, Finding{Level: WARN, Code: "hot", Node: l.Node, GPU: g, Message: fmt.Sprintf("%d °C (limit %d), %.0f W", e.TemperatureC, p.TempMaxC, e.PowerW)})
+		if msg := hot(e, p); msg != "" {
+			out = append(out, Finding{Level: WARN, Code: "hot", Node: l.Node, GPU: g, Message: msg})
 		}
 		if allReserved {
 			out = append(out, Finding{Level: OK, Code: "held", Node: l.Node, GPU: g, Message: fmt.Sprintf("%d tenant(s), all reserved by Nomad, %d%% util", len(e.Tenants), e.UtilizationPct)})
@@ -199,4 +206,41 @@ func Human(d time.Duration) string {
 		return fmt.Sprintf("%dh%dm", int(d/time.Hour), int(d%time.Hour/time.Minute))
 	}
 	return fmt.Sprintf("%dd%dh", int(d/(24*time.Hour)), int(d%(24*time.Hour)/time.Hour))
+}
+
+// encoderLimit is --encoder-max when given, else the card's published cap; 0 means no
+// limit is known, and then no session count is a finding.
+func encoderLimit(e ledger.Entry, p Policy) (int, string) {
+	if p.EncoderMax < 0 {
+		return 0, "" // --encoder-max -1: off
+	}
+	if p.EncoderMax > 0 {
+		return p.EncoderMax, fmt.Sprintf("--encoder-max %d", p.EncoderMax)
+	}
+	if c, ok := cards.Lookup(e.Model); ok && c.SessionLimit > 0 {
+		return c.SessionLimit, "the GeForce driver's cap, NVIDIA's support matrix"
+	}
+	return 0, ""
+}
+
+// hot trusts the driver first: an active thermal slowdown, or a margin to the card's
+// own slowdown temperature at or below ThermalMarginMinC. Only when the driver reports
+// neither does --temp-max decide.
+func hot(e ledger.Entry, p Policy) string {
+	if e.ThermalSlowdown != nil && *e.ThermalSlowdown {
+		return fmt.Sprintf("thermal slowdown active at %d °C, %.0f W — the card is clocking itself down", e.TemperatureC, e.PowerW)
+	}
+	if e.ThermalMarginC != nil {
+		if *e.ThermalMarginC <= ThermalMarginMinC {
+			return fmt.Sprintf("%d °C, %d °C from the card's own slowdown temperature, %.0f W", e.TemperatureC, *e.ThermalMarginC, e.PowerW)
+		}
+		return ""
+	}
+	if e.ThermalSlowdown != nil {
+		return ""
+	}
+	if p.TempMaxC > 0 && e.TemperatureC >= p.TempMaxC {
+		return fmt.Sprintf("%d °C (--temp-max %d; the driver reports no thermal margin), %.0f W", e.TemperatureC, p.TempMaxC, e.PowerW)
+	}
+	return ""
 }

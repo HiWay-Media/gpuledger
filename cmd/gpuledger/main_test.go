@@ -164,7 +164,7 @@ func TestServeExposesMetricsLedgerAndFindings(t *testing.T) {
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	for _, want := range []string{`gpuledger_up{node="gpud"} 1`, `gpuledger_gpu_tenants{node="gpud",gpu="0",uuid="GPU-fef8089b-4a2c-4d1e-9d53-1f2b3c4d5e6f"} 3`, `gpuledger_gpu_reservations{node="gpud",gpu="1",uuid="GPU-ac81e44d-1234-4d1e-9d53-abcdefabcdef"} 1`, `kind="docker",container="gpu-d-new-c0"`} {
+	for _, want := range []string{`gpuledger_up{node="gpud"} 1`, `gpuledger_gpu_tenants{node="gpud",gpu="0",uuid="GPU-fef8089b-4a2c-4d1e-9d53-1f2b3c4d5e6f"} 3`, `gpuledger_gpu_reservations{node="gpud",gpu="1",uuid="GPU-ac81e44d-1234-4d1e-9d53-abcdefabcdef"} 1`, `kind="docker",container="gpu-d-new-c0"`, `gpuledger_gpu_thermal_margin_celsius{node="gpud",gpu="0",uuid="GPU-fef8089b-4a2c-4d1e-9d53-1f2b3c4d5e6f"} 19`, `gpuledger_gpu_thermal_slowdown{node="gpud",gpu="1",uuid="GPU-ac81e44d-1234-4d1e-9d53-abcdefabcdef"} 0`} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("missing %s in\n%s", want, body)
 		}

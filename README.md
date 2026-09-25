@@ -56,8 +56,8 @@ whether each tenant was reserved. From that, the findings:
 | `unmanaged-tenant` | BAD (WARN with `--allow-unmanaged`) | a container nobody orchestrates, or a bare host process, holds the card |
 | `contended` | WARN | two or more distinct tenants on one GPU |
 | `reserved-idle` | WARN | Nomad reserved the GPU and nothing holds it |
-| `encoder-saturated` | WARN | NVENC sessions at or above `--encoder-max` (default 8) |
-| `hot` | WARN | temperature at or above `--temp-max` (default 85 °C) |
+| `encoder-saturated` | WARN | NVENC sessions at the card's published cap (GeForce only — see below), or at `--encoder-max N` when given |
+| `hot` | WARN | thermal slowdown active, or within 5 °C of the card's own slowdown temperature, as the driver reports them; `--temp-max` (85 °C) only when the driver reports neither |
 | `source-unavailable` | ERROR | nvidia-smi, Docker or Nomad could not be read, or Nomad did not return the allocation of a Nomad container (the token lacks `read-job` on its namespace) — the ledger is partial and says so |
 | `idle` | OK | no tenant, no reservation: free capacity (`--no-idle` hides it) |
 | `held` | OK | every tenant on the card is the one Nomad reserved it for |
@@ -87,7 +87,8 @@ curl -s http://<node>:9877/metrics | grep gpuledger_gpu_tenants
 
 Metrics: `gpuledger_up`, `gpuledger_gpu_info{model,bus}`, `_utilization_percent`,
 `_memory_used_bytes`, `_memory_total_bytes`, `_temperature_celsius`, `_power_watts`,
-`_encoder_sessions`, `_tenants`, `_reservations`, `gpuledger_gpu_state{state}` and, with
+`_encoder_sessions`, `_thermal_margin_celsius`, `_thermal_slowdown`, `_tenants`,
+`_reservations`, `gpuledger_gpu_state{state}` and, with
 a history, `gpuledger_gpu_state_since_timestamp_seconds{state}` — alert on
 `time() - gpuledger_gpu_state_since_timestamp_seconds{state="reserved-idle"} > 6*3600` —
 and per tenant
@@ -158,6 +159,32 @@ container whose allocation it cannot see rather than calling it unreserved.
 **Turn on the docker driver's `extra_labels`** (`job_name`, `task_name`, `namespace`) on
 GPU nodes: without them a Nomad tenant is known by its allocation id and container name
 only.
+
+## Per-card numbers
+
+What the driver does not report, gpuledger takes from NVIDIA's
+[Video Encode and Decode GPU Support Matrix](https://developer.nvidia.com/video-encode-and-decode-gpu-support-matrix-new),
+read 2026-09-25 (`internal/cards`):
+
+| Card (`nvidia-smi` name) | NVENC engines | NVENC generation | Concurrent sessions |
+|---|---|---|---|
+| Quadro RTX 4000 | 1 | 7th (Turing) | Unrestricted |
+| NVIDIA L4 | 2 | 8th (Ada) | Unrestricted |
+| Tesla T4 / NVIDIA T4 | 1 | 7th (Turing) | Unrestricted |
+| NVIDIA A10 | 1 | 7th (Ampere) | Unrestricted |
+| GeForce, any | — | — | 12 (the driver's cap; it was 8 in 2024–25 — re-checked before each release) |
+
+So on the farm's cards a session count is never a limit, and `encoder-saturated` stays
+silent unless `--encoder-max N` asks for one; `-1` turns it off everywhere.
+
+Thermal limits are not in the table: the datasheets give only the ambient range (0 –
+50 °C for L4, T4 and A10), and each card's own slowdown temperature comes from the
+driver. gpuledger asks for it with two optional queries, each on its own so a driver
+that lacks a field never breaks the main one: `temperature.gpu.tlimit` (°C left before
+slowdown) and the hardware and software thermal slowdown flags, under
+`clocks_event_reasons.*` and, on drivers before the rename, `clocks_throttle_reasons.*`.
+Both are in `/ledger` and in `/metrics` as `gpuledger_gpu_thermal_margin_celsius` and
+`gpuledger_gpu_thermal_slowdown` — only when the driver reports them.
 
 ## Compatibility
 

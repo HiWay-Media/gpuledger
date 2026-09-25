@@ -5,7 +5,22 @@ versions follow [SemVer](https://semver.org/). Items reference their `GL-n` back
 
 ## [Unreleased]
 
+### Changed
+- `encoder-saturated` uses each card's published cap: none on Quadro RTX 4000, L4, T4
+  and A10 ("Unrestricted" in NVIDIA's support matrix), 12 on GeForce. `--encoder-max`
+  now defaults to 0 (the card's cap); `N` applies to every card, `-1` turns it off. The
+  old default, 8, flagged a limit the farm's cards do not have (GL-15).
+- `hot` trusts the driver first: an active thermal slowdown, or 5 °C or less to the
+  card's own slowdown temperature. `--temp-max` decides only when the driver reports
+  neither.
+
 ### Added
+- `internal/cards`: NVENC engines, generation and session cap per card, with the source.
+- Optional nvidia-smi queries, each on its own so a missing field never breaks the main
+  one: `temperature.gpu.tlimit` and the thermal slowdown flags (`clocks_event_reasons.*`,
+  then `clocks_throttle_reasons.*`). In `/ledger` as `thermalMarginC` and
+  `thermalSlowdown`, in `/metrics` as `gpuledger_gpu_thermal_margin_celsius` and
+  `gpuledger_gpu_thermal_slowdown`.
 - `--history FILE`: `serve` records each GPU's state and since when, atomically, each
   refresh; `ls` and `check` read it. `reserved-idle` and `idle` say for how long, `ls`
   has a `state` column, `/metrics` has `gpuledger_gpu_state{state}` and

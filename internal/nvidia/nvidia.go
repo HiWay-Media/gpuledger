@@ -27,6 +27,12 @@ type GPU struct {
 	PowerW          float64 `json:"powerW"`
 	EncoderSessions int     `json:"encoderSessions"`
 	EncoderFPS      float64 `json:"encoderAverageFps"`
+	// From the optional queries, nil when the driver does not know the field:
+	// ThermalMarginC is temperature.gpu.tlimit, °C left before the card's own slowdown
+	// temperature; ThermalSlowdown is whether hardware or software thermal slowdown is
+	// active now.
+	ThermalMarginC  *int  `json:"thermalMarginC,omitempty"`
+	ThermalSlowdown *bool `json:"thermalSlowdown,omitempty"`
 }
 
 // Process is one PID the driver sees on a GPU.
@@ -76,6 +82,7 @@ func Query(ctx context.Context, r Runner) ([]GPU, []Process, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	optional(ctx, r, gpus)
 	pout, err := r.Run(ctx, "--query-compute-apps="+ProcessQuery, "--format=csv,noheader,nounits")
 	if err != nil {
 		return gpus, nil, fmt.Errorf("nvidia-smi query-compute-apps: %w", err)
@@ -154,4 +161,72 @@ func ParseProcesses(text string) ([]Process, error) {
 		out = append(out, Process{GPUUUID: strings.TrimSpace(r[0]), PID: atoi(r[1]), UsedMemoryMiB: atoi(r[2]), Name: name})
 	}
 	return out, nil
+}
+
+// The optional queries, each asked on its own: nvidia-smi fails the whole query for one
+// field the driver lacks, so a field that may be missing never rides with GPUQuery.
+// The slowdown fields were renamed clocks_throttle_reasons → clocks_event_reasons
+// (around driver 535); the new name is asked first.
+const (
+	MarginQuery         = "index,temperature.gpu.tlimit"
+	SlowdownQuery       = "index,clocks_event_reasons.hw_thermal_slowdown,clocks_event_reasons.sw_thermal_slowdown"
+	SlowdownQueryLegacy = "index,clocks_throttle_reasons.hw_thermal_slowdown,clocks_throttle_reasons.sw_thermal_slowdown"
+)
+
+// optional fills what the driver knows beyond GPUQuery. A failure, or an answer of
+// the wrong shape, leaves the field nil: the driver simply does not report it.
+func optional(ctx context.Context, r Runner, gpus []GPU) {
+	byIndex := map[int]*GPU{}
+	for i := range gpus {
+		byIndex[gpus[i].Index] = &gpus[i]
+	}
+	ask := func(query string) [][]string {
+		out, err := r.Run(ctx, "--query-gpu="+query, "--format=csv,noheader,nounits")
+		if err != nil {
+			return nil
+		}
+		rs, err := rows(string(out))
+		if err != nil {
+			return nil
+		}
+		want := len(strings.Split(query, ","))
+		for _, row := range rs {
+			if len(row) != want {
+				return nil
+			}
+		}
+		return rs
+	}
+	for _, row := range ask(MarginQuery) {
+		g := byIndex[atoi(row[0])]
+		v, err := strconv.Atoi(strings.TrimSpace(row[1]))
+		if g != nil && err == nil {
+			g.ThermalMarginC = &v
+		}
+	}
+	rs := ask(SlowdownQuery)
+	if rs == nil {
+		rs = ask(SlowdownQueryLegacy)
+	}
+	for _, row := range rs {
+		g := byIndex[atoi(row[0])]
+		hw, sw := active(row[1]), active(row[2])
+		if g == nil || hw == nil || sw == nil {
+			continue
+		}
+		v := *hw || *sw
+		g.ThermalSlowdown = &v
+	}
+}
+
+func active(s string) *bool {
+	switch strings.TrimSpace(s) {
+	case "Active":
+		v := true
+		return &v
+	case "Not Active":
+		v := false
+		return &v
+	}
+	return nil
 }
