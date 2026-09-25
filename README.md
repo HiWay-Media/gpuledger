@@ -82,7 +82,7 @@ gpuledger check --exit-on bad --allow-unmanaged
 socket, which a container would have to be handed anyway.
 
 ```
-nomad job run -var version=0.1.0 deploy/nomad/gpuledger.nomad.hcl
+nomad job run -var version=0.2.0 deploy/nomad/gpuledger.nomad.hcl
 curl -s http://<node>:9877/metrics | grep gpuledger_gpu_tenants
 ```
 
@@ -195,7 +195,7 @@ changes by accident.
 ## Per-card numbers
 
 What the driver does not report, gpuledger takes from NVIDIA's
-[Video Encode and Decode GPU Support Matrix](https://developer.nvidia.com/video-encode-and-decode-gpu-support-matrix-new),
+[Video Encode and Decode GPU Support Matrix](https://developer.nvidia.com/video-encode-decode-support-matrix),
 read 2026-09-25 (`internal/cards`):
 
 | Card (`nvidia-smi` name) | NVENC engines | NVENC generation | Concurrent sessions |
@@ -204,7 +204,7 @@ read 2026-09-25 (`internal/cards`):
 | NVIDIA L4 | 2 | 8th (Ada) | Unrestricted |
 | Tesla T4 / NVIDIA T4 | 1 | 7th (Turing) | Unrestricted |
 | NVIDIA A10 | 1 | 7th (Ampere) | Unrestricted |
-| GeForce, any | — | — | 12 (the driver's cap; it was 8 in 2024–25 — re-checked before each release) |
+| GeForce, any | — | — | 12 (the driver's cap; it was 8 in 2024–25 — re-checked before each release, last for 0.2.0) |
 
 So on the farm's cards a session count is never a limit, and `encoder-saturated` stays
 silent unless `--encoder-max N` asks for one; `-1` turns it off everywhere.
