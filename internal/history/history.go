@@ -31,6 +31,7 @@ type Record struct {
 // observations still read as continuous — three refresh intervals for serve.
 type Store struct {
 	mu     sync.Mutex
+	Schema int                `json:"schema"`
 	GPUs   map[string]*Record `json:"gpus"`
 	MaxGap time.Duration      `json:"-"`
 }
@@ -110,6 +111,7 @@ func Load(path string, maxGap time.Duration) (*Store, error) {
 // a reader never sees half a file.
 func (s *Store) Save(path string) error {
 	s.mu.Lock()
+	s.Schema = ledger.Schema
 	b, err := json.MarshalIndent(s, "", " ")
 	s.mu.Unlock()
 	if err != nil {

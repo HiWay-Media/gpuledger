@@ -25,9 +25,9 @@ func TestLedgerTableAndFindingsText(t *testing.T) {
 
 func TestFleetTables(t *testing.T) {
 	s := fleet.Summary{
-		Nodes: []fleet.NodeSummary{{Node: "gpud", GPUs: 2, Held: 1, ReservedIdle: 1, MemoryUsedMiB: 1024, MemoryTotalMiB: 16384}, {Node: "gpuf", Err: "connection refused"}},
+		Nodes: []fleet.NodeSummary{{Node: "gpud", Schema: 1, GPUs: 2, Held: 1, ReservedIdle: 1, MemoryUsedMiB: 1024, MemoryTotalMiB: 16384}, {Node: "gpuf", Err: "connection refused"}},
 		Jobs:  []fleet.JobSummary{{Namespace: "video", Job: "worker", Reserved: 2, Held: 1}},
-		Total: fleet.NodeSummary{Node: "fleet", GPUs: 2, Held: 1, ReservedIdle: 1, MemoryUsedMiB: 1024, MemoryTotalMiB: 16384, Unreachable: 1},
+		Total: fleet.NodeSummary{Node: "fleet", Schema: 1, GPUs: 2, Held: 1, ReservedIdle: 1, MemoryUsedMiB: 1024, MemoryTotalMiB: 16384, Unreachable: 1},
 	}
 	out := Fleet(s)
 	for _, want := range []string{
@@ -53,6 +53,13 @@ func TestLedgerTableShowsTheStateAndItsAge(t *testing.T) {
 	since := at.Add(-90 * time.Minute)
 	out := Ledger(ledger.Ledger{Node: "gpud", At: at, Entries: []ledger.Entry{{GPU: nvidia.GPU{Index: 0, Model: "L4"}, State: ledger.StateReservedIdle, StateSince: &since}, {GPU: nvidia.GPU{Index: 1, Model: "L4"}, State: ledger.StateFree}}})
 	if !strings.Contains(out, "│ state ") || !strings.Contains(out, "reserved-idle 1h30m") || !strings.Contains(out, "│ free ") {
+		t.Fatalf("%s", out)
+	}
+}
+
+func TestFleetTableMarksANodeOnAnotherSchema(t *testing.T) {
+	out := Fleet(fleet.Summary{Nodes: []fleet.NodeSummary{{Node: "gpua", Schema: 0, GPUs: 2}}, Total: fleet.NodeSummary{Node: "fleet", Schema: 1}})
+	if !strings.Contains(out, "gpua (schema 0)") || strings.Contains(out, "fleet (schema") {
 		t.Fatalf("%s", out)
 	}
 }

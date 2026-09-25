@@ -179,6 +179,7 @@ func fetch(ctx context.Context, t Target, timeout time.Duration) Node {
 // ReservedIdle, Unaccounted and Free.
 type NodeSummary struct {
 	Node         string `json:"node"`
+	Schema       int    `json:"schema"` // the node's ledger schema; 0 is a gpuledger before 0.3
 	GPUs         int    `json:"gpus"`
 	Held         int    `json:"held"`         // tenants, every one the reservation's
 	ReservedIdle int    `json:"reservedIdle"` // reserved, nothing on it
@@ -202,17 +203,18 @@ type JobSummary struct {
 
 // Summary is the fleet: per node, per job, and the total.
 type Summary struct {
-	Nodes []NodeSummary `json:"nodes"`
-	Jobs  []JobSummary  `json:"jobs"`
-	Total NodeSummary   `json:"total"`
+	Schema int           `json:"schema"`
+	Nodes  []NodeSummary `json:"nodes"`
+	Jobs   []JobSummary  `json:"jobs"`
+	Total  NodeSummary   `json:"total"`
 }
 
 // Summarise counts; it is pure, the nodes are what Fetch read.
 func Summarise(nodes []Node) Summary {
-	s := Summary{Nodes: []NodeSummary{}, Jobs: []JobSummary{}, Total: NodeSummary{Node: "fleet"}}
+	s := Summary{Schema: ledger.Schema, Nodes: []NodeSummary{}, Jobs: []JobSummary{}, Total: NodeSummary{Node: "fleet", Schema: ledger.Schema}}
 	jobs := map[[2]string]*JobSummary{}
 	for _, n := range nodes {
-		ns := NodeSummary{Node: n.Name(), Err: n.Err}
+		ns := NodeSummary{Node: n.Name(), Schema: n.Ledger.Schema, Err: n.Err}
 		if n.Err != "" {
 			s.Total.Unreachable++
 			s.Nodes = append(s.Nodes, ns)

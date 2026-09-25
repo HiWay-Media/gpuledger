@@ -84,8 +84,13 @@ type Entry struct {
 	StateSince *time.Time `json:"stateSince,omitempty"`
 }
 
+// Schema is the version of the JSON contract (README: The JSON contract). Adding a
+// field keeps it; removing or renaming one, or changing its type or meaning, bumps it.
+const Schema = 1
+
 // Ledger is one node's snapshot.
 type Ledger struct {
+	Schema  int       `json:"schema"` // 0 from a gpuledger before 0.3
 	Node    string    `json:"node"`
 	At      time.Time `json:"at"`
 	Entries []Entry   `json:"entries"`
@@ -139,7 +144,7 @@ func itoa(i int) string {
 
 // Build joins the inputs.
 func Build(in Inputs) Ledger {
-	l := Ledger{Node: in.Node, At: in.At, Errors: in.Errors, NomadRead: in.Allocs != nil}
+	l := Ledger{Schema: Schema, Node: in.Node, At: in.At, Errors: in.Errors, NomadRead: in.Allocs != nil}
 	for _, g := range in.GPUs {
 		e := Entry{GPU: g}
 		reservedAllocs := map[string]bool{}

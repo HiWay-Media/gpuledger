@@ -190,3 +190,9 @@ func TestAllocFromNameNeedsNomadToKnowIt(t *testing.T) {
 		t.Fatalf("not returned: still a Nomad tenant Nomad cannot vouch for, flagged as named: %+v", tn)
 	}
 }
+
+func TestBuildStampsTheSchema(t *testing.T) {
+	if l := Build(inputs()); l.Schema != Schema || Schema != 1 {
+		t.Fatalf("schema %d, want %d", l.Schema, Schema)
+	}
+}

@@ -251,7 +251,7 @@ func main() {
 		l := annotate(collect(ctx, o), o)
 		fs := findings.Evaluate(l, policy(o))
 		if o.jsonOut {
-			json.NewEncoder(os.Stdout).Encode(map[string]any{"node": l.Node, "at": l.At, "findings": fs, "worst": findings.Worst(fs)})
+			json.NewEncoder(os.Stdout).Encode(map[string]any{"schema": ledger.Schema, "node": l.Node, "at": l.At, "findings": fs, "worst": findings.Worst(fs)})
 		} else {
 			fmt.Print(render.Findings(fs))
 		}
@@ -349,7 +349,7 @@ func newMux(snap func() ledger.Ledger, p findings.Policy) *http.ServeMux {
 		w.Header().Set("Content-Type", "application/json")
 		l := snap()
 		fs := findings.Evaluate(l, p)
-		json.NewEncoder(w).Encode(map[string]any{"node": l.Node, "at": l.At, "findings": fs, "worst": findings.Worst(fs)})
+		json.NewEncoder(w).Encode(map[string]any{"schema": ledger.Schema, "node": l.Node, "at": l.At, "findings": fs, "worst": findings.Worst(fs)})
 	})
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		if errs := snap().Errors; len(errs) > 0 {
@@ -388,7 +388,7 @@ func runFleet(ctx context.Context, o options) int {
 	case "check":
 		fs := fleet.Findings(nodes, policy(o))
 		if o.jsonOut {
-			json.NewEncoder(os.Stdout).Encode(map[string]any{"at": at, "findings": fs, "worst": findings.Worst(fs)})
+			json.NewEncoder(os.Stdout).Encode(map[string]any{"schema": ledger.Schema, "at": at, "findings": fs, "worst": findings.Worst(fs)})
 		} else {
 			fmt.Print(render.FleetFindings(fs))
 		}
@@ -396,7 +396,7 @@ func runFleet(ctx context.Context, o options) int {
 	default:
 		s := fleet.Summarise(nodes)
 		if o.jsonOut {
-			json.NewEncoder(os.Stdout).Encode(map[string]any{"at": at, "summary": s})
+			json.NewEncoder(os.Stdout).Encode(map[string]any{"schema": ledger.Schema, "at": at, "summary": s})
 		} else {
 			fmt.Println(render.Fleet(s))
 		}
