@@ -6,6 +6,13 @@ versions follow [SemVer](https://semver.org/). Items reference their `GL-n` back
 ## [Unreleased]
 
 ### Added
+- `--history FILE`: `serve` records each GPU's state and since when, atomically, each
+  refresh; `ls` and `check` read it. `reserved-idle` and `idle` say for how long, `ls`
+  has a `state` column, `/metrics` has `gpuledger_gpu_state{state}` and
+  `gpuledger_gpu_state_since_timestamp_seconds`. A silence over three intervals, or a
+  partial read, restarts the clock. The system job keeps the file on a sticky disk (GL-14).
+- The ledger JSON has `state` and `stateSince` per GPU; `fleet` shares the one
+  classification (`ledger.Classify`).
 - `gpuledger fleet ls` and `fleet check`: every node's `/ledger`, from `--targets` or
   Consul's health API (`--consul`, default `$CONSUL_HTTP_ADDR`; the token from the variable
   named by `--consul-token-env`). Each GPU is counted as held, reserved-idle, unaccounted

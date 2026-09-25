@@ -19,6 +19,7 @@
 //	--exit-on          "", warn, bad, error — check's exit code policy (default: always 0)
 //	--encoder-max 8    --temp-max 85    --allow-unmanaged    --no-idle
 //	--listen :9877     --interval 15s   (serve)
+//	--history FILE     per-GPU state and since when: serve writes it, ls and check read it
 //	--targets h:p,…    --consul $CONSUL_HTTP_ADDR  --consul-service gpuledger
 //	--consul-token-env CONSUL_HTTP_TOKEN (name of the variable)  --timeout 5s   (fleet)
 //
@@ -41,6 +42,7 @@ import (
 	"github.com/hiway-media/gpuledger/internal/containers"
 	"github.com/hiway-media/gpuledger/internal/findings"
 	"github.com/hiway-media/gpuledger/internal/fleet"
+	"github.com/hiway-media/gpuledger/internal/history"
 	"github.com/hiway-media/gpuledger/internal/ledger"
 	"github.com/hiway-media/gpuledger/internal/metrics"
 	"github.com/hiway-media/gpuledger/internal/nomad"
@@ -57,6 +59,7 @@ type options struct {
 	// fleet
 	sub, targets, consul, consulService, consulTokenEnv string
 	timeout                                             time.Duration
+	history                                             string
 }
 
 func parse(args []string) (string, options, error) {
@@ -78,6 +81,7 @@ func parse(args []string) (string, options, error) {
 	fs.IntVar(&o.encoderMax, "encoder-max", findings.Default.EncoderMax, "encoder sessions at or above which a GPU is saturated")
 	fs.IntVar(&o.tempMax, "temp-max", findings.Default.TempMaxC, "temperature (°C) at or above which a GPU is hot")
 	fs.DurationVar(&o.interval, "interval", 15*time.Second, "serve: refresh interval")
+	fs.StringVar(&o.history, "history", "", "state history file: serve writes it, ls and check read it")
 	fs.StringVar(&o.targets, "targets", "", "fleet: gpuledger endpoints, host:port,…")
 	fs.StringVar(&o.consul, "consul", envOr("CONSUL_HTTP_ADDR", ""), "fleet: Consul address, to discover the endpoints")
 	fs.StringVar(&o.consulService, "consul-service", "gpuledger", "fleet: the Consul service gpuledger serve registers as")
@@ -149,7 +153,7 @@ func usage() string {
 
 Flags: --nomad-addr --nomad-token-env --docker --nvidia-smi --proc --node --json
        --exit-on --encoder-max --temp-max --allow-unmanaged --no-idle --no-nomad --no-docker
-       --listen --interval
+       --listen --interval --history
        --targets --consul --consul-service --consul-token-env --timeout
 `
 }
@@ -218,7 +222,7 @@ func main() {
 	case "version":
 		fmt.Println("gpuledger", version.Version)
 	case "ls":
-		l := collect(ctx, o)
+		l := annotate(collect(ctx, o), o)
 		if o.jsonOut {
 			json.NewEncoder(os.Stdout).Encode(l)
 		} else {
@@ -228,7 +232,7 @@ func main() {
 			}
 		}
 	case "check":
-		l := collect(ctx, o)
+		l := annotate(collect(ctx, o), o)
 		fs := findings.Evaluate(l, policy(o))
 		if o.jsonOut {
 			json.NewEncoder(os.Stdout).Encode(map[string]any{"node": l.Node, "at": l.At, "findings": fs, "worst": findings.Worst(fs)})
@@ -248,14 +252,52 @@ func main() {
 	}
 }
 
+// maxGap is the longest silence between two reads still taken as continuous.
+func maxGap(o options) time.Duration { return 3 * o.interval }
+
+// annotate, for ls and check, reads the history serve writes and never writes it; an
+// unreadable history is a source error like any other.
+func annotate(l ledger.Ledger, o options) ledger.Ledger {
+	if o.history == "" {
+		return l
+	}
+	h, err := history.Load(o.history, maxGap(o))
+	if err != nil {
+		l.Errors = append(l.Errors, "history: "+err.Error())
+		return l
+	}
+	h.Annotate(&l)
+	return l
+}
+
 func serve(ctx context.Context, o options) {
 	var mu sync.RWMutex
-	current := collect(ctx, o)
+	h := history.New(maxGap(o))
+	if o.history != "" {
+		loaded, err := history.Load(o.history, maxGap(o))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "gpuledger: history %s unreadable, starting a new one: %v\n", o.history, err)
+		} else {
+			h = loaded
+		}
+	}
+	// record observes, annotates and, with --history, saves: only serve writes it.
+	record := func(l ledger.Ledger) ledger.Ledger {
+		h.Observe(l)
+		h.Annotate(&l)
+		if o.history != "" {
+			if err := h.Save(o.history); err != nil {
+				fmt.Fprintln(os.Stderr, "gpuledger: history:", err)
+			}
+		}
+		return l
+	}
+	current := record(collect(ctx, o))
 	go func() {
 		t := time.NewTicker(o.interval)
 		defer t.Stop()
 		for range t.C {
-			l := collect(ctx, o)
+			l := record(collect(ctx, o))
 			mu.Lock()
 			current = l
 			mu.Unlock()

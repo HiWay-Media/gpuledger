@@ -47,3 +47,12 @@ func TestFleetTables(t *testing.T) {
 		t.Fatalf("%s", f)
 	}
 }
+
+func TestLedgerTableShowsTheStateAndItsAge(t *testing.T) {
+	at := time.Date(2026, 9, 25, 14, 0, 0, 0, time.UTC)
+	since := at.Add(-90 * time.Minute)
+	out := Ledger(ledger.Ledger{Node: "gpud", At: at, Entries: []ledger.Entry{{GPU: nvidia.GPU{Index: 0, Model: "L4"}, State: ledger.StateReservedIdle, StateSince: &since}, {GPU: nvidia.GPU{Index: 1, Model: "L4"}, State: ledger.StateFree}}})
+	if !strings.Contains(out, "│ state ") || !strings.Contains(out, "reserved-idle 1h30m") || !strings.Contains(out, "│ free ") {
+		t.Fatalf("%s", out)
+	}
+}

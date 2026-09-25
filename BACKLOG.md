@@ -87,9 +87,10 @@ owes the driver side and moved to v0.2.0, with GL-1 and GL-11.
   service discovery (or a list of addresses) and prints the fleet: GPUs total, held,
   reserved-idle, unmanaged, per node and per job. `gpuledger fleet ls|check`.
   <!-- gl: prio=med size=M labels=enhancement ver=main -->
-- [ ] **GL-14 — Capacity history**: a small on-disk ring of snapshots so `check` can say
-  "idle for the last 6 h", the number a scheduling decision needs.
-  <!-- gl: prio=low size=M labels=ledger -->
+- [x] **GL-14 — Capacity history**: a small on-disk record so `check` can say
+  "idle for the last 6 h", the number a scheduling decision needs — one record per GPU
+  (state, since, seen) rather than a ring of snapshots: `--history`.
+  <!-- gl: prio=low size=M labels=ledger ver=main -->
 - [ ] **GL-15 — Per-card thresholds**: encoder session limits and thermal limits by model
   (Quadro RTX 4000, L4, T4, A10) with the source of each number.
   <!-- gl: prio=low size=S labels=ledger,docs -->

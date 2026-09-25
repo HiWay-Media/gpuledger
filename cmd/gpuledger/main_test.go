@@ -3,6 +3,8 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -253,5 +255,60 @@ func TestFleetOverRealServeProcesses(t *testing.T) {
 	out, _ = exec.Command(bin, "fleet", "check", "--consul", "http://127.0.0.1:9").Output()
 	if !strings.Contains(string(out), "source-unavailable") || !strings.Contains(string(out), "consul") {
 		t.Fatalf("%s", out)
+	}
+}
+
+// serve --history writes the file; /ledger carries stateSince; check --history reads it,
+// says for how long, and never writes it.
+func TestHistoryFromServeToCheck(t *testing.T) {
+	bin := build(t)
+	docker, nomadURL := fakes(t)
+	root, _ := filepath.Abs("../../testdata")
+	hist := filepath.Join(t.TempDir(), "state", "history.json")
+	src := []string{"--nvidia-smi", filepath.Join(root, "fake-nvidia-smi.sh"), "--proc", filepath.Join(root, "proc"), "--docker", docker, "--nomad-addr", nomadURL, "--node", "gpud", "--history", hist, "--interval", "1s"}
+	ln, _ := net.Listen("tcp", "127.0.0.1:0")
+	addr := ln.Addr().String()
+	ln.Close()
+	srv := exec.Command(bin, append([]string{"serve", "--listen", addr}, src...)...)
+	if err := srv.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer srv.Process.Kill()
+	var body []byte
+	for i := 0; i < 50; i++ {
+		time.Sleep(100 * time.Millisecond)
+		res, err := http.Get("http://" + addr + "/ledger")
+		if err != nil {
+			continue
+		}
+		body, _ = io.ReadAll(res.Body)
+		res.Body.Close()
+		if strings.Contains(string(body), `"stateSince"`) {
+			break
+		}
+	}
+	if !strings.Contains(string(body), `"state":"reserved-idle","stateSince"`) {
+		t.Fatalf("/ledger with history: %s", body)
+	}
+	time.Sleep(1500 * time.Millisecond)
+	st, err := os.Stat(hist)
+	if err != nil {
+		t.Fatalf("serve writes the history: %v", err)
+	}
+	srv.Process.Kill()
+	srv.Wait()
+
+	cmd := exec.Command(bin, append([]string{"check"}, src...)...)
+	out, _ := cmd.Output()
+	if !strings.Contains(string(out), "reserved-idle") || !strings.Contains(string(out), "holds it, for ") {
+		t.Fatalf("check --history says for how long:\n%s", out)
+	}
+	if st2, _ := os.Stat(hist); !st2.ModTime().Equal(st.ModTime()) {
+		t.Fatal("check must not write the history")
+	}
+	os.WriteFile(hist, []byte("{broken"), 0o644)
+	out, _ = exec.Command(bin, append([]string{"check", "--json"}, src...)...).Output()
+	if !strings.Contains(string(out), `"source-unavailable"`) || !strings.Contains(string(out), "history") {
+		t.Fatalf("a corrupt history is a finding: %s", out)
 	}
 }

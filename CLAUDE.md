@@ -21,8 +21,11 @@ cmd/gpuledger/main.go        the CLI: ls · check · serve · fleet ls|check · 
 internal/nvidia/             nvidia-smi runner and CSV parsers (GPUQuery, ProcessQuery are the exact field lists)
 internal/containers/         cgroup → container id; Docker Engine client (unix socket or http); Nomad labels
 internal/nomad/              agent self → node id → node allocations → GPU reservations; token from an env var by name
-internal/ledger/             the pure join: Entry per GPU with Reservations and Tenants; Kind nomad|docker|host
+internal/ledger/             the pure join: Entry per GPU with Reservations, Tenants and State (Classify:
+                             free|reserved-idle|held|unaccounted); Kind nomad|docker|host
 internal/findings/           Policy, Evaluate (codes below), Worst, ExitCode
+internal/history/            per-GPU state and since when; Observe skips partial ledgers, a gap > MaxGap
+                             restarts the clock; Save is tmp + rename; only serve writes it
 internal/fleet/              every node's /ledger (static targets or Consul health API), Summarise per node
                              and job, Findings with one policy; a node not read is a Node with Err
 internal/metrics/            Prometheus text exposition, hand-written
@@ -47,7 +50,8 @@ BACKLOG.md / ROADMAP.md      single source of truth (GL-n ids) / generated view
 ## The rules the code encodes
 
 1. **Read-only.** No command that changes state is ever invoked; the Docker socket is
-   used for GET only; Nomad for GET only.
+   used for GET only; Nomad for GET only. The one file written is `--history`, by
+   `serve` only.
 2. **Never print what could carry a secret.** Process names are the binary alone
    (`nvidia.ParseProcesses`), the only environment variable read is
    `NVIDIA_VISIBLE_DEVICES`, container labels kept are `com.hashicorp.nomad.*` only,

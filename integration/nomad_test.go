@@ -493,7 +493,8 @@ func metrics(t *testing.T, bin, smi, addr, token, promtool string) {
 	listen := fmt.Sprintf("127.0.0.1:%d", freePort(t))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	cmd := exec.CommandContext(ctx, bin, "serve", "--listen", listen, "--nvidia-smi", smi, "--nomad-addr", addr, "--nomad-token-env", "GL_IT_TOKEN", "--node", "it")
+	hist := filepath.Join(t.TempDir(), "history.json")
+	cmd := exec.CommandContext(ctx, bin, "serve", "--listen", listen, "--interval", "1s", "--history", hist, "--nvidia-smi", smi, "--nomad-addr", addr, "--nomad-token-env", "GL_IT_TOKEN", "--node", "it")
 	cmd.Env = append(os.Environ(), "GL_IT_TOKEN="+token)
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
@@ -508,6 +509,18 @@ func metrics(t *testing.T, bin, smi, addr, token, promtool string) {
 		body, _ = io.ReadAll(res.Body)
 		return res.StatusCode == 200, res.Status
 	})
+	eventually(t, "a since from the history", 20*time.Second, func() (bool, string) {
+		res, err := http.Get("http://" + listen + "/metrics")
+		if err != nil {
+			return false, err.Error()
+		}
+		defer res.Body.Close()
+		body, _ = io.ReadAll(res.Body)
+		return bytes.Contains(body, []byte(`gpuledger_gpu_state_since_timestamp_seconds{node="it",gpu=`)) && bytes.Contains(body, []byte(`state="reserved-idle"`)), "no since yet"
+	})
+	if _, err := os.Stat(hist); err != nil {
+		t.Errorf("serve --history writes the file: %v", err)
+	}
 	if !bytes.Contains(body, []byte(`gpuledger_up{node="it"} 1`)) {
 		t.Errorf("up must be 1:\n%s", body)
 	}

@@ -5,6 +5,7 @@ package findings
 import (
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/hiway-media/gpuledger/internal/ledger"
 )
@@ -70,9 +71,9 @@ func Evaluate(l ledger.Ledger, p Policy) []Finding {
 		if len(e.Tenants) == 0 {
 			if len(e.Reservations) > 0 {
 				r := e.Reservations[0]
-				out = append(out, Finding{Level: WARN, Code: "reserved-idle", Node: l.Node, GPU: g, Message: fmt.Sprintf("reserved by %s/%s (alloc %s) but no process or container holds it", r.JobID, r.Task, short(r.AllocID))})
+				out = append(out, Finding{Level: WARN, Code: "reserved-idle", Node: l.Node, GPU: g, Message: fmt.Sprintf("reserved by %s/%s (alloc %s) but no process or container holds it%s", r.JobID, r.Task, short(r.AllocID), forHow(l, e))})
 			} else if p.IdleIsFinding {
-				out = append(out, Finding{Level: OK, Code: "idle", Node: l.Node, GPU: g, Message: fmt.Sprintf("%s idle: no tenant, no reservation, %d MiB free", e.Model, e.MemoryTotalMiB-e.MemoryUsedMiB)})
+				out = append(out, Finding{Level: OK, Code: "idle", Node: l.Node, GPU: g, Message: fmt.Sprintf("%s idle: no tenant, no reservation, %d MiB free%s", e.Model, e.MemoryTotalMiB-e.MemoryUsedMiB, forHow(l, e))})
 			}
 		}
 		allReserved := len(e.Tenants) > 0
@@ -177,4 +178,25 @@ func short(id string) string {
 		return id[:8]
 	}
 	return id
+}
+
+// forHow is ", for 6h12m" when the history knows since when the GPU is in its state.
+func forHow(l ledger.Ledger, e ledger.Entry) string {
+	if e.StateSince == nil {
+		return ""
+	}
+	return ", for " + Human(l.At.Sub(*e.StateSince))
+}
+
+// Human prints a duration the way an operator reads one: 45m, 6h12m, 2d1h.
+func Human(d time.Duration) string {
+	switch {
+	case d < time.Minute:
+		return "<1m"
+	case d < time.Hour:
+		return fmt.Sprintf("%dm", int(d/time.Minute))
+	case d < 48*time.Hour:
+		return fmt.Sprintf("%dh%dm", int(d/time.Hour), int(d%time.Hour/time.Minute))
+	}
+	return fmt.Sprintf("%dd%dh", int(d/(24*time.Hour)), int(d%(24*time.Hour)/time.Hour))
 }

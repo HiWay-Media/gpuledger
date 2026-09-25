@@ -149,3 +149,26 @@ func TestAllocVisibilityIsRecorded(t *testing.T) {
 		}
 	}
 }
+
+func TestClassifyAndBuildSetTheState(t *testing.T) {
+	nomadT := Tenant{Kind: KindNomad, AllocID: "a", Reserved: true, AllocVisible: true}
+	res := []nomad.Reservation{{AllocID: "a"}}
+	for _, c := range []struct {
+		e    Entry
+		want State
+	}{
+		{Entry{}, StateFree},
+		{Entry{Reservations: res}, StateReservedIdle},
+		{Entry{Reservations: res, Tenants: []Tenant{nomadT}}, StateHeld},
+		{Entry{Reservations: res, Tenants: []Tenant{nomadT, {Kind: KindHost}}}, StateUnaccounted},
+		{Entry{Tenants: []Tenant{{Kind: KindDocker}}}, StateUnaccounted},
+	} {
+		if got := Classify(c.e); got != c.want {
+			t.Errorf("%+v: got %s, want %s", c.e, got, c.want)
+		}
+	}
+	l := Build(inputs())
+	if l.Entries[0].State != StateUnaccounted || l.Entries[1].State != StateReservedIdle {
+		t.Fatalf("Build sets State: %s %s", l.Entries[0].State, l.Entries[1].State)
+	}
+}

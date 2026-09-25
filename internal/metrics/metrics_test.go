@@ -3,6 +3,7 @@ package metrics
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hiway-media/gpuledger/internal/ledger"
 	"github.com/hiway-media/gpuledger/internal/nvidia"
@@ -85,5 +86,25 @@ func TestFamiliesAreContiguous(t *testing.T) {
 			}
 			current = name
 		}
+	}
+}
+
+func TestStateAndSinceGauges(t *testing.T) {
+	since := time.Unix(1790000000, 0)
+	out := Render(ledger.Ledger{Node: "gpud", Entries: []ledger.Entry{
+		{GPU: nvidia.GPU{Index: 0, UUID: "GPU-a"}, State: ledger.StateReservedIdle, StateSince: &since},
+		{GPU: nvidia.GPU{Index: 1, UUID: "GPU-b"}, State: ledger.StateFree},
+	}})
+	for _, want := range []string{
+		`gpuledger_gpu_state{node="gpud",gpu="0",uuid="GPU-a",state="reserved-idle"} 1`,
+		`gpuledger_gpu_state{node="gpud",gpu="1",uuid="GPU-b",state="free"} 1`,
+		`gpuledger_gpu_state_since_timestamp_seconds{node="gpud",gpu="0",uuid="GPU-a",state="reserved-idle"} 1790000000`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %s in\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, `gpuledger_gpu_state_since_timestamp_seconds{node="gpud",gpu="1"`) {
+		t.Error("no since without history")
 	}
 }
