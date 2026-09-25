@@ -188,3 +188,40 @@ func TestInvisibleAllocFromANameSaysSo(t *testing.T) {
 		t.Fatalf("%+v", fs)
 	}
 }
+
+// Codes lists every code Evaluate can emit, with its level under a policy, so the
+// metrics can expose a 0 for each — an alert on "> 0" needs the series to exist.
+func TestCodesCoverEverythingEvaluateEmits(t *testing.T) {
+	cs := Codes(Default)
+	if len(cs) != 9 {
+		t.Fatalf("%v", cs)
+	}
+	lv := map[string]Level{}
+	for _, c := range cs {
+		lv[c.Code] = c.Level
+	}
+	relaxed := map[string]Level{}
+	for _, c := range Codes(Policy{AllowUnmanaged: true}) {
+		relaxed[c.Code] = c.Level
+	}
+	if lv["unmanaged-tenant"] != BAD || relaxed["unmanaged-tenant"] != WARN || lv["source-unavailable"] != ERROR || lv["held"] != OK {
+		t.Fatalf("%v", cs)
+	}
+	l := ledger.Ledger{Node: "gpud", NomadRead: true, Errors: []string{"x"}, Entries: []ledger.Entry{
+		{GPU: nvidia.GPU{Index: 0, UUID: "GPU-a", Model: "NVIDIA GeForce RTX 4090", EncoderSessions: 12, TemperatureC: 90}, Reservations: []nomad.Reservation{{AllocID: "r1"}}, Tenants: []ledger.Tenant{{Kind: ledger.KindNomad, AllocID: "r1", Reserved: true, AllocVisible: true}, {Kind: ledger.KindDocker}}},
+		{GPU: nvidia.GPU{Index: 1, UUID: "GPU-b"}, Reservations: []nomad.Reservation{{AllocID: "r2"}}},
+		{GPU: nvidia.GPU{Index: 2, UUID: "GPU-c"}},
+		{GPU: nvidia.GPU{Index: 3, UUID: "GPU-d"}, Tenants: []ledger.Tenant{{Kind: ledger.KindNomad, AllocID: "r3", AllocVisible: true}}},
+		{GPU: nvidia.GPU{Index: 4, UUID: "GPU-e"}, Tenants: []ledger.Tenant{{Kind: ledger.KindNomad, AllocID: "r4", Reserved: true, AllocVisible: true}}},
+	}}
+	seen := map[string]bool{}
+	for _, f := range Evaluate(l, Default) {
+		seen[f.Code] = true
+		if lv[f.Code] != f.Level {
+			t.Errorf("%s emitted at %s, Codes says %s", f.Code, f.Level, lv[f.Code])
+		}
+	}
+	if len(seen) != 9 {
+		t.Errorf("the fixture should emit every code, got %v", seen)
+	}
+}

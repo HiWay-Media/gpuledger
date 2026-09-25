@@ -22,9 +22,11 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -536,6 +538,11 @@ func metrics(t *testing.T, bin, smi, addr, token, promtool string) {
 	if _, err := os.Stat(hist); err != nil {
 		t.Errorf("serve --history writes the file: %v", err)
 	}
+	for _, want := range []string{`gpuledger_findings{node="it",code="unreserved-tenant",level="BAD"} 1`, `gpuledger_findings{node="it",code="source-unavailable",level="ERROR"} 0`, `gpuledger_worst_level{node="it"} 2`} {
+		if !bytes.Contains(body, []byte(want)) {
+			t.Errorf("missing %s in /metrics", want)
+		}
+	}
 	if !bytes.Contains(body, []byte(`gpuledger_up{node="it"} 1`)) {
 		t.Errorf("up must be 1:\n%s", body)
 	}
@@ -563,6 +570,10 @@ func metrics(t *testing.T, bin, smi, addr, token, promtool string) {
 	}
 	if tot := fs.Summary.Total; tot.GPUs != 3 || tot.Held != 1 || tot.ReservedIdle != 1 || tot.Unaccounted != 1 || jobs["default/enc"] != [2]int{1, 1} || jobs["video/idle"] != [2]int{1, 0} {
 		t.Errorf("fleet ls against the real node:\n%s", fl)
+	}
+
+	if promBin := os.Getenv("PROMETHEUS_BIN"); promBin != "" {
+		dashboardAgainstPrometheus(t, promBin, listen)
 	}
 
 	if consulBin := os.Getenv("CONSUL_BIN"); consulBin != "" {
@@ -715,4 +726,77 @@ func TestPodmanAgainstARealNomad(t *testing.T) {
 		return
 	}
 	t.Errorf("no entry for %s:\n%s", gpu, out)
+}
+
+// dashboardAgainstPrometheus scrapes the node with a real Prometheus and runs every
+// dashboard query and every alert expression: each must execute, every panel but the
+// ones the fake driver cannot feed must return data, and the Nomad job must survive
+// ingestion under its own label (Prometheus renames a metric label called job).
+func dashboardAgainstPrometheus(t *testing.T, promBin, listen string) {
+	dir := t.TempDir()
+	port := freePort(t)
+	cfg := fmt.Sprintf("global:\n  scrape_interval: 1s\nscrape_configs:\n  - job_name: gpuledger\n    static_configs:\n      - targets: [%q]\n", listen)
+	os.WriteFile(filepath.Join(dir, "prometheus.yml"), []byte(cfg), 0o644)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cmd := exec.CommandContext(ctx, promBin, "--config.file", filepath.Join(dir, "prometheus.yml"), "--storage.tsdb.path", filepath.Join(dir, "data"), "--web.listen-address", fmt.Sprintf("127.0.0.1:%d", port))
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	query := func(expr string) (string, int, error) {
+		res, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/api/v1/query?query=%s", port, url.QueryEscape(expr)))
+		if err != nil {
+			return "", 0, err
+		}
+		defer res.Body.Close()
+		var r struct {
+			Status, Error string
+			Data          struct{ Result []json.RawMessage }
+		}
+		if err := json.NewDecoder(res.Body).Decode(&r); err != nil {
+			return "", 0, err
+		}
+		return r.Status + r.Error, len(r.Data.Result), nil
+	}
+	eventually(t, "Prometheus scraping gpuledger", 60*time.Second, func() (bool, string) {
+		st, n, err := query(`gpuledger_gpu_state_since_timestamp_seconds{state="reserved-idle"}`)
+		return err == nil && n > 0, fmt.Sprint(st, n, err)
+	})
+	if _, n, _ := query(`gpuledger_tenant_memory_bytes{nomad_job="enc"}`); n == 0 {
+		t.Error("the Nomad job does not survive ingestion under nomad_job")
+	}
+	b, err := os.ReadFile("../deploy/grafana/gpuledger.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var d struct {
+		Panels []struct {
+			Title   string
+			Targets []struct{ Expr string }
+		}
+	}
+	if err := json.Unmarshal(b, &d); err != nil {
+		t.Fatal(err)
+	}
+	mayBeEmpty := map[string]bool{"Thermal slowdown": true} // the fake nvidia-smi reports no slowdown flags
+	for _, p := range d.Panels {
+		for _, tg := range p.Targets {
+			expr := strings.ReplaceAll(tg.Expr, "$node", ".*")
+			st, n, err := query(expr)
+			if err != nil || st != "success" {
+				t.Errorf("panel %q: %s: %v %s", p.Title, expr, err, st)
+			} else if n == 0 && !mayBeEmpty[p.Title] {
+				t.Errorf("panel %q returns no data: %s", p.Title, expr)
+			}
+		}
+	}
+	rules, _ := os.ReadFile("../deploy/prometheus/gpuledger.rules.yml")
+	for _, m := range regexp.MustCompile(`(?m)^\s+expr: (.+)$`).FindAllStringSubmatch(string(rules), -1) {
+		if st, _, err := query(m[1]); err != nil || st != "success" {
+			t.Errorf("rule %s: %v %s", m[1], err, st)
+		}
+	}
+	if _, n, _ := query(`gpuledger_findings{code="unreserved-tenant"} > 0`); n == 0 {
+		t.Error("GPULedgerUnreservedTenant's expression must match the unreserved tenant the test plants")
+	}
 }

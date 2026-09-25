@@ -1,0 +1,76 @@
+# promtool test rules deploy/prometheus/gpuledger.rules.test.yml
+rule_files:
+  - gpuledger.rules.yml
+
+evaluation_interval: 1m
+
+tests:
+  - interval: 1m
+    input_series:
+      - series: 'gpuledger_up{node="gpud"}'
+        values: '1 0 0 0 0 0 0'
+      - series: 'gpuledger_findings{node="gpud",code="unreserved-tenant",level="BAD"}'
+        values: '0 1 1 1 1 1 1'
+      - series: 'gpuledger_findings{node="gpud",code="unmanaged-tenant",level="BAD"}'
+        values: '1x20'
+      - series: 'gpuledger_findings{node="gpue",code="unmanaged-tenant",level="BAD"}'
+        values: '0x20'
+      - series: 'gpuledger_findings{node="gpud",code="hot",level="WARN"}'
+        values: '1 1 1 0 1 1 1'
+      - series: 'gpuledger_gpu_thermal_slowdown{node="gpud",gpu="0",uuid="GPU-a"}'
+        values: '1x10'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: GPULedgerSourceDown
+        exp_alerts: []
+      - eval_time: 6m
+        alertname: GPULedgerSourceDown
+        exp_alerts:
+          - exp_labels: {severity: warning, node: gpud}
+            exp_annotations:
+              summary: "gpuledger on gpud cannot read a source"
+              description: "nvidia-smi, Docker or Nomad could not be read for 5 minutes; the ledger is partial. /healthz on the node names the failing source."
+      - eval_time: 6m
+        alertname: GPULedgerUnreservedTenant
+        exp_alerts:
+          - exp_labels: {severity: critical, node: gpud, code: unreserved-tenant, level: BAD}
+            exp_annotations:
+              summary: "A Nomad task on gpud uses a GPU Nomad did not allocate to it"
+              description: "1 GPU(s). Check the task's NVIDIA_VISIBLE_DEVICES and its device stanza: `gpuledger check` on the node."
+      - eval_time: 10m
+        alertname: GPULedgerUnmanagedTenant
+        exp_alerts: []
+      - eval_time: 16m
+        alertname: GPULedgerUnmanagedTenant
+        exp_alerts:
+          - exp_labels: {severity: warning, node: gpud, code: unmanaged-tenant, level: BAD}
+            exp_annotations:
+              summary: "Something outside Nomad holds a GPU on gpud"
+              description: "1 container(s) or host process(es) nobody orchestrates, for 15 minutes. `gpuledger ls` on the node names them."
+      # A dip to 0 at 3m restarts the 10m hot window: nothing at 6m.
+      - eval_time: 6m
+        alertname: GPULedgerHot
+        exp_alerts: []
+      - eval_time: 6m
+        alertname: GPULedgerThermalSlowdown
+        exp_alerts:
+          - exp_labels: {severity: warning, node: gpud, gpu: "0", uuid: GPU-a}
+            exp_annotations:
+              summary: "GPU 0 on gpud is clocking itself down"
+              description: "Hardware or software thermal slowdown active for 5 minutes."
+
+  # Reserved-idle from the history's since: 7 h ago fires, 1 h ago does not.
+  - interval: 1m
+    input_series:
+      - series: 'gpuledger_gpu_state_since_timestamp_seconds{node="gpud",gpu="1",uuid="GPU-b",state="reserved-idle"}'
+        values: '-25200x5'
+      - series: 'gpuledger_gpu_state_since_timestamp_seconds{node="gpud",gpu="0",uuid="GPU-a",state="reserved-idle"}'
+        values: '-3600x5'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: GPULedgerReservedIdle
+        exp_alerts:
+          - exp_labels: {severity: info, node: gpud, gpu: "1", uuid: GPU-b, state: reserved-idle}
+            exp_annotations:
+              summary: "GPU 1 on gpud reserved and idle for over 6 hours"
+              description: "Nomad reserved the card and nothing runs on it. Needs serve --history, which the system job sets."
