@@ -138,6 +138,12 @@ gpuledger fleet · 7 node(s), 1 unreachable · 12 GPU(s)
 │ default/tngrm-video-worker   │ 3        │ 1    │
 ```
 
+Without Consul, Nomad's own service discovery (1.3+) does the same job: set
+`provider = "nomad"` in the system job's `service` block, then
+`gpuledger fleet --nomad-service gpuledger` — with the same `--nomad-addr`, token and
+TLS as the rest, and the same policy file (listing a service needs `read-job`, which it
+has). The job spec leaves `provider` out, so it still validates on Nomad before 1.3.
+
 It asks the nodes' gpuledger only, never their Nomad, Docker or driver: each node is
 seen exactly as its own agent sees it. `--consul` defaults to `$CONSUL_HTTP_ADDR`, the
 Consul token comes from the variable named by `--consul-token-env` (`CONSUL_HTTP_TOKEN`),
@@ -149,7 +155,7 @@ the token is never on a command line — `--docker unix:///var/run/docker.sock`,
 `--podman auto`, `--nvidia-smi`, `--proc /proc`, `--node`, `--json`, `--no-nomad`, `--no-docker`,
 `--encoder-max`, `--temp-max`, `--allow-unmanaged`, `--no-idle`, `--listen`, `--interval`,
 `--history`;
-for `fleet`, `--targets`, `--consul`, `--consul-service`, `--consul-token-env`, `--timeout`.
+for `fleet`, `--targets`, `--nomad-service`, `--nomad-namespace`, `--consul`, `--consul-service`, `--consul-token-env`, `--timeout`.
 
 **Alerts and a dashboard**, for Prometheus and Grafana:
 [`deploy/prometheus/gpuledger.rules.yml`](deploy/prometheus/gpuledger.rules.yml) —

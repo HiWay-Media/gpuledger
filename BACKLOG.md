@@ -151,10 +151,10 @@ matrix, on every version that has the feature.
   leak or rotate. Establish in the matrix which of `agent:read`, `node:read` and
   `read-job` a workload-associated policy can carry, and ship the job variant that works,
   keeping the token path for older clusters. <!-- gl: prio=med size=M labels=collector,docs -->
-- [ ] **GL-26 — Fleet through Nomad's service discovery**: `fleet --nomad-service
+- [x] **GL-26 — Fleet through Nomad's service discovery**: `fleet --nomad-service
   gpuledger` reads `/v1/service/<name>` (Nomad 1.3+), so a cluster without Consul finds
-  its nodes; the system job takes the service `provider` as a variable. Tested on every
-  matrix version from 1.3. <!-- gl: prio=med size=S labels=enhancement,tests -->
+  its nodes. The system job leaves `provider` out — it would stop validating before 1.3 —
+  and the README says where to set it. Tested on every matrix version from 1.3. <!-- gl: prio=med size=S labels=enhancement,tests ver=main -->
 - [ ] **GL-27 — Consul over TLS**: `fleet --consul https://…` with `CONSUL_CACERT`,
   `CONSUL_CLIENT_CERT`, `CONSUL_CLIENT_KEY`, as Consul's CLI reads them; the Consul dev
   agent in the matrix started with TLS. <!-- gl: prio=low size=S labels=enhancement,tests -->

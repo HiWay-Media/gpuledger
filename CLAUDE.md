@@ -119,6 +119,10 @@ BACKLOG.md / ROADMAP.md      single source of truth (GL-n ids) / generated view
   allocations; `/v1/agent/self` → `stats.client.node_id` on a client.
 - **nvidia-smi**: `--query-gpu` and `--query-compute-apps` with `--format=csv,noheader,nounits`;
   `[N/A]` and `[Not Supported]` appear as values and parse to 0; UUIDs are `GPU-<uuid>`.
+- **Nomad service discovery** (observed on Nomad 1.3.16 – 2.0.7, 2026-09-26; absent
+  before 1.3, `/v1/services` is a 404): a group service with `provider = "nomad"`
+  registers `{ServiceName, Namespace, NodeID, AllocID, Address, Port}` at
+  `/v1/service/<name>?namespace=…`; the policy file's `read-job` is enough to read it.
 - **Consul health API** (observed with a Consul 2.0.4 dev agent in the Nomad matrix,
   2026-09-25): `GET /v1/health/service/<name>?passing=true` → `[{Node:{Node,Address},
   Service:{Address,Port}}]`; `Service.Address` empty means the node's; token in
