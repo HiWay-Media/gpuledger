@@ -102,7 +102,39 @@ What needs a real GPU node moved to v0.3.0.
   `/ledger` and `/findings`, golden-file tests, and a documented rule for what counts as
   a breaking change. <!-- gl: prio=med size=S labels=ledger,tests ver=0.2.0 -->
 
-## v0.3.0 — Told by the hardware <!-- ms: phase=now -->
+## v0.3.0 — A hardened cluster <!-- ms: phase=shipped -->
+
+gpuledger on a cluster locked down the way production should be: Nomad's API over
+mutual TLS, no long-lived ACL token to hand out, no Consul required to find the nodes,
+and release binaries whose origin can be verified. Each item is observed in the Nomad
+matrix, on every version that has the feature.
+
+- [x] **GL-24 — Nomad over mTLS**: `https://` agents with a CA and a client certificate —
+  `--nomad-ca-cert`, `--nomad-client-cert`, `--nomad-client-key`, defaulting to
+  `NOMAD_CACERT`, `NOMAD_CLIENT_CERT`, `NOMAD_CLIENT_KEY` and `NOMAD_TLS_SERVER_NAME` as
+  the Nomad CLI reads them; paths only, never key material in a flag. The matrix runs an
+  agent with `tls { http = true, verify_https_client = true }` from certificates it makes.
+  <!-- gl: prio=med size=M labels=collector,tests ver=0.3.0 -->
+- [x] **GL-25 — Workload identity instead of a token**: from Nomad 1.7 the system job can
+  take `identity { env = true }` and a job-bound ACL policy, so no static token exists to
+  leak or rotate. Establish in the matrix which of `agent:read`, `node:read` and
+  `read-job` a workload-associated policy can carry, and ship the job variant that works,
+  keeping the token path for older clusters. Established: the policy file bound to the
+  job works from 1.5, but `/v1/agent/self` refuses a workload identity before 1.11 —
+  hence `--nomad-node-id` and `gpuledger.wi.nomad.hcl`. <!-- gl: prio=med size=M labels=collector,docs ver=0.3.0 -->
+- [x] **GL-26 — Fleet through Nomad's service discovery**: `fleet --nomad-service
+  gpuledger` reads `/v1/service/<name>` (Nomad 1.3+), so a cluster without Consul finds
+  its nodes. The system job leaves `provider` out — it would stop validating before 1.3 —
+  and the README says where to set it. Tested on every matrix version from 1.3. <!-- gl: prio=med size=S labels=enhancement,tests ver=0.3.0 -->
+- [x] **GL-27 — Consul over TLS**: `fleet --consul https://…` with `CONSUL_CACERT`,
+  `CONSUL_CLIENT_CERT`, `CONSUL_CLIENT_KEY`, as Consul's CLI reads them; the Consul dev
+  agent in the matrix started with TLS. <!-- gl: prio=low size=S labels=enhancement,tests ver=0.3.0 -->
+- [x] **GL-28 — Verifiable releases**: build provenance attestations on every release
+  binary (`gh attestation verify`), the checksum pinned in the system job's `artifact`
+  from the release's checksums file, and the README's install steps verifying both.
+  <!-- gl: prio=med size=S labels=release,docs ver=0.3.0 -->
+
+## v0.4.0 — Told by the hardware <!-- ms: phase=now -->
 
 What CI cannot observe: the run on a GPU node with the real driver and device plugin,
 the encoder sessions only a real `nvidia-smi` shows, and the design questions the
@@ -132,35 +164,3 @@ QRSPI run settles with those answers in hand.
   info` as a read-only runner (the nvidia-smi pattern) or a dependency with its reason in
   `CLAUDE.md`. Needs the driver's labels and cgroup layout observed first, as GL-16 did
   for Podman. <!-- gl: prio=low size=M labels=collector -->
-
-## v0.4.0 — A hardened cluster <!-- ms: phase=next -->
-
-gpuledger on a cluster locked down the way production should be: Nomad's API over
-mutual TLS, no long-lived ACL token to hand out, no Consul required to find the nodes,
-and release binaries whose origin can be verified. Each item is observed in the Nomad
-matrix, on every version that has the feature.
-
-- [x] **GL-24 — Nomad over mTLS**: `https://` agents with a CA and a client certificate —
-  `--nomad-ca-cert`, `--nomad-client-cert`, `--nomad-client-key`, defaulting to
-  `NOMAD_CACERT`, `NOMAD_CLIENT_CERT`, `NOMAD_CLIENT_KEY` and `NOMAD_TLS_SERVER_NAME` as
-  the Nomad CLI reads them; paths only, never key material in a flag. The matrix runs an
-  agent with `tls { http = true, verify_https_client = true }` from certificates it makes.
-  <!-- gl: prio=med size=M labels=collector,tests ver=main -->
-- [x] **GL-25 — Workload identity instead of a token**: from Nomad 1.7 the system job can
-  take `identity { env = true }` and a job-bound ACL policy, so no static token exists to
-  leak or rotate. Establish in the matrix which of `agent:read`, `node:read` and
-  `read-job` a workload-associated policy can carry, and ship the job variant that works,
-  keeping the token path for older clusters. Established: the policy file bound to the
-  job works from 1.5, but `/v1/agent/self` refuses a workload identity before 1.11 —
-  hence `--nomad-node-id` and `gpuledger.wi.nomad.hcl`. <!-- gl: prio=med size=M labels=collector,docs ver=main -->
-- [x] **GL-26 — Fleet through Nomad's service discovery**: `fleet --nomad-service
-  gpuledger` reads `/v1/service/<name>` (Nomad 1.3+), so a cluster without Consul finds
-  its nodes. The system job leaves `provider` out — it would stop validating before 1.3 —
-  and the README says where to set it. Tested on every matrix version from 1.3. <!-- gl: prio=med size=S labels=enhancement,tests ver=main -->
-- [x] **GL-27 — Consul over TLS**: `fleet --consul https://…` with `CONSUL_CACERT`,
-  `CONSUL_CLIENT_CERT`, `CONSUL_CLIENT_KEY`, as Consul's CLI reads them; the Consul dev
-  agent in the matrix started with TLS. <!-- gl: prio=low size=S labels=enhancement,tests ver=main -->
-- [x] **GL-28 — Verifiable releases**: build provenance attestations on every release
-  binary (`gh attestation verify`), the checksum pinned in the system job's `artifact`
-  from the release's checksums file, and the README's install steps verifying both.
-  <!-- gl: prio=med size=S labels=release,docs ver=main -->
