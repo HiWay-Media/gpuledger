@@ -4,7 +4,7 @@
 
 > This page is **generated** from [BACKLOG.md](BACKLOG.md), the single source of truth for planned work. Regenerate it with `node scripts/backlog.mjs roadmap` after editing the backlog — CI fails when the two disagree.
 
-**23 items · 19 shipped · 4 open · 3 milestones.**
+**28 items · 19 shipped · 9 open · 4 milestones.**
 
 ## At a glance
 
@@ -13,6 +13,7 @@
 | **v0.1.0 — One node, told the truth** | shipped | `##########` 100% | 0 | 11 |
 | **v0.2.0 — The whole cluster, watched** | shipped | `##########` 100% | 0 | 8 |
 | **v0.3.0 — Told by the hardware** | now | `..........` 0% | 4 | 0 |
+| **v0.4.0 — A hardened cluster** | next | `..........` 0% | 5 | 0 |
 
 ## v0.1.0 — One node, told the truth
 
@@ -45,3 +46,11 @@
 - [ ] **GL-11** — Encoder-only sessions · med · M · collector
 - [ ] **GL-1** — Run QRSPI on the brief: Questions → Research → Spec → Plan · high · L · ledger
 - [ ] **GL-23** — containerd · low · M · collector
+
+## v0.4.0 — A hardened cluster
+
+- [ ] **GL-24** — Nomad over mTLS · med · M · collector, tests
+- [ ] **GL-25** — Workload identity instead of a token · med · M · collector, docs
+- [ ] **GL-26** — Fleet through Nomad's service discovery · med · S · enhancement, tests
+- [ ] **GL-27** — Consul over TLS · low · S · enhancement, tests
+- [ ] **GL-28** — Verifiable releases · med · S · release, docs
