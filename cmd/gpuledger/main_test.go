@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,6 +15,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/hiway-media/gpuledger/internal/testcerts"
 )
 
 const cidA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -385,4 +389,41 @@ func freeAddr(t *testing.T) string {
 	}
 	defer ln.Close()
 	return ln.Addr().String()
+}
+
+// Against an agent API that requires a client certificate: with the certificates the
+// ledger has its reservations; without them, a source error that says TLS.
+func TestCheckOverMutualTLS(t *testing.T) {
+	bin := build(t)
+	set, err := testcerts.Write(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool := x509.NewCertPool()
+	ca, _ := os.ReadFile(set.CA)
+	pool.AppendCertsFromPEM(ca)
+	cert, _ := tls.LoadX509KeyPair(set.ServerCert, set.ServerKey)
+	nm := http.NewServeMux()
+	nm.HandleFunc("/v1/agent/self", func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte(`{"stats":{"client":{"node_id":"n1"}}}`)) })
+	nm.HandleFunc("/v1/node/n1/allocations", func(w http.ResponseWriter, _ *http.Request) {
+		w.Write([]byte(`[{"ID":"77777777-0000-0000-0000-000000000000","JobID":"worker","ClientStatus":"running","AllocatedResources":{"Tasks":{"w":{"Devices":[{"Type":"gpu","Vendor":"nvidia","DeviceIDs":["GPU-ac81e44d-1234-4d1e-9d53-abcdefabcdef"]}]}}}}]`))
+	})
+	srv := httptest.NewUnstartedServer(nm)
+	srv.TLS = &tls.Config{Certificates: []tls.Certificate{cert}, ClientCAs: pool, ClientAuth: tls.RequireAndVerifyClientCert}
+	srv.StartTLS()
+	defer srv.Close()
+	root, _ := filepath.Abs("../../testdata")
+	base := []string{"check", "--json", "--nvidia-smi", filepath.Join(root, "fake-nvidia-smi.sh"), "--proc", filepath.Join(root, "proc"), "--no-docker", "--nomad-addr", srv.URL, "--node", "gpud"}
+	out, _ := exec.Command(bin, append(base, "--nomad-ca-cert", set.CA, "--nomad-client-cert", set.ClientCert, "--nomad-client-key", set.ClientKey)...).Output()
+	if strings.Contains(string(out), "source-unavailable") || !strings.Contains(string(out), `"reserved-idle"`) {
+		t.Fatalf("over mTLS: %s", out)
+	}
+	out, _ = exec.Command(bin, append(base, "--nomad-ca-cert", set.CA)...).Output()
+	if !strings.Contains(string(out), `"source-unavailable"`) || !strings.Contains(string(out), "tls") {
+		t.Fatalf("without a client certificate: %s", out)
+	}
+	out, _ = exec.Command(bin, append(base, "--nomad-client-cert", set.ClientCert)...).Output()
+	if !strings.Contains(string(out), "--nomad-client-key") {
+		t.Fatalf("half a key pair: %s", out)
+	}
 }

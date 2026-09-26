@@ -2,6 +2,12 @@ package nomad
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"os"
+	"path/filepath"
+
+	"github.com/hiway-media/gpuledger/internal/testcerts"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -87,5 +93,75 @@ func TestForbiddenSaysWhichCapabilityIsMissing(t *testing.T) {
 	c := serveAllocs(t, 403, `Permission denied`)
 	if _, _, err := c.Reservations(context.Background(), "n"); err == nil || !strings.Contains(err.Error(), "node:read") {
 		t.Fatalf("%v", err)
+	}
+}
+
+// mtlsServer is an agent API that requires a client certificate signed by the set's CA.
+func mtlsServer(t *testing.T, set testcerts.Set) *httptest.Server {
+	pool := x509.NewCertPool()
+	ca, _ := os.ReadFile(set.CA)
+	pool.AppendCertsFromPEM(ca)
+	cert, err := tls.LoadX509KeyPair(set.ServerCert, set.ServerKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Write([]byte(`{"stats":{"client":{"node_id":"n-tls"}}}`))
+	}))
+	srv.TLS = &tls.Config{Certificates: []tls.Certificate{cert}, ClientCAs: pool, ClientAuth: tls.RequireAndVerifyClientCert}
+	srv.StartTLS()
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func TestMutualTLS(t *testing.T) {
+	set, err := testcerts.Write(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := mtlsServer(t, set)
+	ctx := context.Background()
+	c, err := NewTLSClient(srv.URL, "", TLS{CACert: set.CA, ClientCert: set.ClientCert, ClientKey: set.ClientKey})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id, err := c.NodeID(ctx); err != nil || id != "n-tls" {
+		t.Fatalf("with CA and client certificate: %q %v", id, err)
+	}
+	// A CA directory, as NOMAD_CAPATH names one, and a server name override.
+	dir := t.TempDir()
+	b, _ := os.ReadFile(set.CA)
+	os.WriteFile(filepath.Join(dir, "ca.pem"), b, 0o600)
+	named := strings.Replace(srv.URL, "127.0.0.1", "localhost", 1)
+	c, _ = NewTLSClient(named, "", TLS{CAPath: dir, ClientCert: set.ClientCert, ClientKey: set.ClientKey, ServerName: "server.global.nomad"})
+	if id, err := c.NodeID(ctx); err != nil || id != "n-tls" {
+		t.Fatalf("with a CA path and a server name: %q %v", id, err)
+	}
+	// No client certificate: the handshake fails, and the error says it is TLS.
+	c, _ = NewTLSClient(srv.URL, "", TLS{CACert: set.CA})
+	if _, err := c.NodeID(ctx); err == nil || !strings.Contains(err.Error(), "tls") {
+		t.Fatalf("without a client certificate: %v", err)
+	}
+	// Not trusting the agent's CA.
+	c, _ = NewTLSClient(srv.URL, "", TLS{ClientCert: set.ClientCert, ClientKey: set.ClientKey})
+	if _, err := c.NodeID(ctx); err == nil || !strings.Contains(err.Error(), "certificate") {
+		t.Fatalf("an unknown CA: %v", err)
+	}
+	// Files that cannot be read are an error when the client is made, naming the flag.
+	for _, bad := range []TLS{{CACert: "/nope/ca.pem"}, {ClientCert: set.ClientCert}, {ClientCert: "/nope/c.pem", ClientKey: "/nope/k.pem"}, {CAPath: t.TempDir()}} {
+		if _, err := NewTLSClient(srv.URL, "", bad); err == nil || !strings.Contains(err.Error(), "--nomad-") {
+			t.Errorf("%+v: want an error naming the flag, got %v", bad, err)
+		}
+	}
+}
+
+func TestTLSFromTheNomadCLIsVariables(t *testing.T) {
+	t.Setenv("NOMAD_CACERT", "/c/ca.pem")
+	t.Setenv("NOMAD_CAPATH", "/c/cas")
+	t.Setenv("NOMAD_CLIENT_CERT", "/c/cli.pem")
+	t.Setenv("NOMAD_CLIENT_KEY", "/c/cli-key.pem")
+	t.Setenv("NOMAD_TLS_SERVER_NAME", "server.global.nomad")
+	if got := TLSFromEnv(); got != (TLS{CACert: "/c/ca.pem", CAPath: "/c/cas", ClientCert: "/c/cli.pem", ClientKey: "/c/cli-key.pem", ServerName: "server.global.nomad"}) {
+		t.Fatalf("%+v", got)
 	}
 }

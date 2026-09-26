@@ -12,6 +12,8 @@
 // Flags (every subcommand):
 //
 //	--nomad-addr       http://127.0.0.1:4646     --nomad-token-env NOMAD_TOKEN (name of the variable)
+//	--nomad-ca-cert --nomad-ca-path --nomad-client-cert --nomad-client-key --nomad-tls-server-name
+//	                   paths, defaulting to the Nomad CLI's NOMAD_CACERT, … variables
 //	--docker           unix:///var/run/docker.sock (or http://host:port)
 //	--podman           auto: unix:///run/podman/podman.sock when it exists; off; or an endpoint
 //	--nvidia-smi       nvidia-smi                --proc /proc
@@ -61,12 +63,19 @@ type options struct {
 	sub, targets, consul, consulService, consulTokenEnv string
 	timeout                                             time.Duration
 	history                                             string
+	nomadTLS                                            nomad.TLS
 }
 
 func parse(args []string) (string, options, error) {
 	fs := flag.NewFlagSet("gpuledger", flag.ContinueOnError)
 	var o options
 	fs.StringVar(&o.nomadAddr, "nomad-addr", envOr("NOMAD_ADDR", "http://127.0.0.1:4646"), "Nomad agent address")
+	env := nomad.TLSFromEnv()
+	fs.StringVar(&o.nomadTLS.CACert, "nomad-ca-cert", env.CACert, "CA certificate for an agent over TLS (default $NOMAD_CACERT)")
+	fs.StringVar(&o.nomadTLS.CAPath, "nomad-ca-path", env.CAPath, "directory of CA certificates (default $NOMAD_CAPATH)")
+	fs.StringVar(&o.nomadTLS.ClientCert, "nomad-client-cert", env.ClientCert, "client certificate, for verify_https_client (default $NOMAD_CLIENT_CERT)")
+	fs.StringVar(&o.nomadTLS.ClientKey, "nomad-client-key", env.ClientKey, "the client certificate's key file (default $NOMAD_CLIENT_KEY)")
+	fs.StringVar(&o.nomadTLS.ServerName, "nomad-tls-server-name", env.ServerName, "server name to verify, e.g. server.global.nomad (default $NOMAD_TLS_SERVER_NAME)")
 	fs.StringVar(&o.tokenEnv, "nomad-token-env", "NOMAD_TOKEN", "name of the environment variable holding the Nomad ACL token")
 	fs.StringVar(&o.docker, "docker", envOr("DOCKER_HOST", "unix:///var/run/docker.sock"), "Docker endpoint (unix:// or http://)")
 	fs.StringVar(&o.podman, "podman", "auto", "Podman endpoint (its Docker-compatible API); auto: "+podmanSocket+" when it exists; off")
@@ -153,7 +162,8 @@ func usage() string {
   gpuledger fleet check  every node's findings, one policy, worst first (--json, --exit-on)
   gpuledger version
 
-Flags: --nomad-addr --nomad-token-env --docker --podman --nvidia-smi --proc --node --json
+Flags: --nomad-addr --nomad-token-env --nomad-ca-cert --nomad-ca-path --nomad-client-cert
+       --nomad-client-key --nomad-tls-server-name --docker --podman --nvidia-smi --proc --node --json
        --exit-on --encoder-max --temp-max --allow-unmanaged --no-idle --no-nomad --no-docker
        --listen --interval --history
        --targets --consul --consul-service --consul-token-env --timeout
@@ -205,8 +215,11 @@ func collect(ctx context.Context, o options) ledger.Ledger {
 		}
 	}
 	if !o.noNomad {
-		nc := nomad.NewClient(o.nomadAddr, o.tokenEnv)
-		nodeID, err := nc.NodeID(ctx)
+		nc, err := nomad.NewTLSClient(o.nomadAddr, o.tokenEnv, o.nomadTLS)
+		nodeID := ""
+		if err == nil {
+			nodeID, err = nc.NodeID(ctx)
+		}
 		if err != nil {
 			in.Errors = append(in.Errors, "nomad: "+err.Error())
 		} else if nodeID == "" {
