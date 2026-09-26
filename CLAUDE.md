@@ -31,6 +31,8 @@ internal/fleet/              every node's /ledger (static targets or Consul heal
                              and job, Findings with one policy; a node not read is a Node with Err
 internal/cards/               per-card NVENC engines and session caps from NVIDIA's support matrix, each with
                              its source; exact nvidia-smi names ("NVIDIA A10" is not an A10G or an A100)
+internal/tlsfiles/           CA file or path, client certificate and key, server name → tls.Config, for
+                             Nomad and Consul alike; errors name the --nomad- or --consul- flag
 internal/testcerts/          a throwaway CA, server and client certificate for tests (unit and matrix);
                              imported by tests only
 internal/metrics/            Prometheus text exposition, hand-written
@@ -140,6 +142,9 @@ BACKLOG.md / ROADMAP.md      single source of truth (GL-n ids) / generated view
   has been observed on the farm's driver: that is part of GL-10.
 - **`nvidia-smi encodersessions`**: its bare-metal column layout is not published
   (only vGPU's `vgpu -es`); GL-11 needs the real output from a farm node.
+- **Consul over TLS** (a Consul 2.0.4 dev agent in the matrix, 2026-09-26): `ports { https }`
+  and `tls { defaults { ca_file, cert_file, key_file, verify_incoming = true } }`; a client
+  without a certificate is refused at the handshake.
 - **Docker Engine API**: `GET /containers/json`, `GET /containers/<id>/json`
   (`Config.Labels`, `Config.Env`, `HostConfig.DeviceRequests`).
 - **cgroup paths**: v2 `0::/system.slice/docker-<id>.scope`, v1 `…/docker/<id>`,

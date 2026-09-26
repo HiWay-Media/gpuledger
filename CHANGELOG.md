@@ -6,6 +6,10 @@ versions follow [SemVer](https://semver.org/). Items reference their `GL-n` back
 ## [Unreleased]
 
 ### Added
+- Consul over TLS for `fleet`: `--consul-ca-cert`, `--consul-ca-path`,
+  `--consul-client-cert`, `--consul-client-key`, `--consul-tls-server-name`, defaulting
+  to the Consul CLI's variables, and `CONSUL_HTTP_SSL` for a bare address. The matrix
+  runs a Consul dev agent with `verify_incoming` (GL-27).
 - `fleet --nomad-service NAME` (and `--nomad-namespace`): the endpoints from Nomad's
   own service discovery, Nomad 1.3+, with the same address, token and TLS as the rest —
   for clusters without Consul. Observed on every matrix version from 1.3 (GL-26).

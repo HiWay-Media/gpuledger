@@ -138,6 +138,11 @@ gpuledger fleet · 7 node(s), 1 unreachable · 12 GPU(s)
 │ default/tngrm-video-worker   │ 3        │ 1    │
 ```
 
+Consul over TLS works the same way as Nomad's: `--consul https://…` (or a bare address
+with `CONSUL_HTTP_SSL=true`), `--consul-ca-cert`, `--consul-ca-path`,
+`--consul-client-cert`, `--consul-client-key`, `--consul-tls-server-name`, each
+defaulting to the Consul CLI's variable (`CONSUL_CACERT`, …).
+
 Without Consul, Nomad's own service discovery (1.3+) does the same job: set
 `provider = "nomad"` in the system job's `service` block, then
 `gpuledger fleet --nomad-service gpuledger` — with the same `--nomad-addr`, token and
@@ -247,7 +252,8 @@ container outside Nomad, and checks with the policy file's token that gpuledger 
 right cards; that a token without `read-job` or without `node:read` is an ERROR naming
 it; that `/metrics` passes `promtool check metrics`; that the system job validates; and
 that `fleet` counts the node's jobs right, directly and through a Consul dev agent's
-health API with the `/healthz` check the system job declares. A second test runs a task
+health API with the `/healthz` check the system job declares — and once more over
+HTTPS with `verify_incoming`. A second test runs a task
 under the latest `nomad-driver-podman` (0.6.5), without `extra_labels`, and checks the card
 comes out `held` from the container's name alone.
 

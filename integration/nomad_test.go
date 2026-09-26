@@ -613,6 +613,7 @@ func metrics(t *testing.T, a *agent, bin, smi, token, promtool string) {
 
 	if consulBin := os.Getenv("CONSUL_BIN"); consulBin != "" {
 		viaConsul(t, bin, consulBin, listen)
+		viaConsulTLS(t, bin, consulBin, listen)
 	}
 
 	pc := exec.Command(promtool, "check", "metrics")
@@ -946,4 +947,77 @@ func viaNomadServices(t *testing.T, a *agent, bin, listen, token string) {
 		return bytes.Contains(out, []byte(`"node":"it"`)) && bytes.Contains(out, []byte(`"gpus":3`)) && !bytes.Contains(out, []byte(`"unreachable"`)), string(out)
 	})
 	t.Logf("fleet via Nomad services: %s", bytes.TrimSpace(out))
+}
+
+// viaConsulTLS is viaConsul against Consul's HTTPS API with verify_incoming: the
+// registration and gpuledger both present a client certificate, which gpuledger takes
+// from the Consul CLI's variables; without one, Consul refuses and the fleet says so.
+func viaConsulTLS(t *testing.T, bin, consulBin, listen string) {
+	dir, err := os.MkdirTemp("", "gpuledger-it-consul-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+	set, err := testcerts.Write(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	https := freePort(t)
+	cfg := fmt.Sprintf(`ports { https = %d }
+tls {
+  defaults {
+    ca_file         = %q
+    cert_file       = %q
+    key_file        = %q
+    verify_incoming = true
+  }
+}
+`, https, set.CA, set.ServerCert, set.ServerKey)
+	os.WriteFile(filepath.Join(dir, "consul.hcl"), []byte(cfg), 0o644)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cmd := exec.CommandContext(ctx, consulBin, "agent", "-dev", "-config-file", filepath.Join(dir, "consul.hcl"), "-http-port", fmt.Sprint(freePort(t)), "-dns-port", "-1", "-grpc-port", "-1", "-serf-lan-port", fmt.Sprint(freePort(t)), "-serf-wan-port", fmt.Sprint(freePort(t)), "-server-port", fmt.Sprint(freePort(t)))
+	var log bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &log, &log
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if t.Failed() {
+			t.Logf("consul log:\n%s", log.String())
+		}
+	}()
+	pool := x509.NewCertPool()
+	ca, _ := os.ReadFile(set.CA)
+	pool.AppendCertsFromPEM(ca)
+	cert, _ := tls.LoadX509KeyPair(set.ClientCert, set.ClientKey)
+	hc := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool, Certificates: []tls.Certificate{cert}}}}
+	addr := fmt.Sprintf("https://127.0.0.1:%d", https)
+	host, p, _ := net.SplitHostPort(listen)
+	reg, _ := json.Marshal(map[string]any{"Name": "gpuledger", "Address": host, "Port": atoi(p), "Check": map[string]any{"HTTP": "http://" + listen + "/healthz", "Interval": "1s"}})
+	eventually(t, "Consul registration over HTTPS", 30*time.Second, func() (bool, string) {
+		req, _ := http.NewRequest("PUT", addr+"/v1/agent/service/register", bytes.NewReader(reg))
+		res, err := hc.Do(req)
+		if err != nil {
+			return false, err.Error()
+		}
+		res.Body.Close()
+		return res.StatusCode == 200, res.Status
+	})
+	fl := func(env ...string) []byte {
+		c := exec.Command(bin, "fleet", "ls", "--json", "--consul", addr)
+		c.Env = append(os.Environ(), env...)
+		out, _ := c.Output()
+		return out
+	}
+	var out []byte
+	eventually(t, "the node through Consul over mTLS", 30*time.Second, func() (bool, string) {
+		out = fl("CONSUL_CACERT="+set.CA, "CONSUL_CLIENT_CERT="+set.ClientCert, "CONSUL_CLIENT_KEY="+set.ClientKey)
+		return bytes.Contains(out, []byte(`"gpus":3`)) && !bytes.Contains(out, []byte(`"unreachable"`)), string(out)
+	})
+	t.Logf("fleet via Consul over mTLS: %s", bytes.TrimSpace(out))
+	out = fl("CONSUL_CACERT=" + set.CA)
+	if !bytes.Contains(out, []byte(`"unreachable":1`)) || !(bytes.Contains(out, []byte("tls")) || bytes.Contains(out, []byte("certificate"))) {
+		t.Errorf("Consul refuses a client without a certificate, and the fleet says so: %s", out)
+	}
 }

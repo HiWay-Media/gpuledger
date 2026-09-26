@@ -155,9 +155,9 @@ matrix, on every version that has the feature.
   gpuledger` reads `/v1/service/<name>` (Nomad 1.3+), so a cluster without Consul finds
   its nodes. The system job leaves `provider` out — it would stop validating before 1.3 —
   and the README says where to set it. Tested on every matrix version from 1.3. <!-- gl: prio=med size=S labels=enhancement,tests ver=main -->
-- [ ] **GL-27 — Consul over TLS**: `fleet --consul https://…` with `CONSUL_CACERT`,
+- [x] **GL-27 — Consul over TLS**: `fleet --consul https://…` with `CONSUL_CACERT`,
   `CONSUL_CLIENT_CERT`, `CONSUL_CLIENT_KEY`, as Consul's CLI reads them; the Consul dev
-  agent in the matrix started with TLS. <!-- gl: prio=low size=S labels=enhancement,tests -->
+  agent in the matrix started with TLS. <!-- gl: prio=low size=S labels=enhancement,tests ver=main -->
 - [ ] **GL-28 — Verifiable releases**: build provenance attestations on every release
   binary (`gh attestation verify`), the checksum pinned in the system job's `artifact`
   from the release's checksums file, and the README's install steps verifying both.

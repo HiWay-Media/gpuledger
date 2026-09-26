@@ -51,6 +51,7 @@ import (
 	"github.com/hiway-media/gpuledger/internal/nomad"
 	"github.com/hiway-media/gpuledger/internal/nvidia"
 	"github.com/hiway-media/gpuledger/internal/render"
+	"github.com/hiway-media/gpuledger/internal/tlsfiles"
 	"github.com/hiway-media/gpuledger/internal/version"
 )
 
@@ -65,6 +66,7 @@ type options struct {
 	history                                             string
 	nomadService, nomadNamespace                        string
 	nomadTLS                                            nomad.TLS
+	consulTLS                                           tlsfiles.Files
 }
 
 func parse(args []string) (string, options, error) {
@@ -97,6 +99,12 @@ func parse(args []string) (string, options, error) {
 	fs.StringVar(&o.targets, "targets", "", "fleet: gpuledger endpoints, host:port,…")
 	fs.StringVar(&o.consul, "consul", envOr("CONSUL_HTTP_ADDR", ""), "fleet: Consul address, to discover the endpoints")
 	fs.StringVar(&o.consulService, "consul-service", "gpuledger", "fleet: the Consul service gpuledger serve registers as")
+	cenv := tlsfiles.FromEnv("CONSUL")
+	fs.StringVar(&o.consulTLS.CACert, "consul-ca-cert", cenv.CACert, "fleet: CA certificate for Consul over TLS (default $CONSUL_CACERT)")
+	fs.StringVar(&o.consulTLS.CAPath, "consul-ca-path", cenv.CAPath, "fleet: directory of CA certificates (default $CONSUL_CAPATH)")
+	fs.StringVar(&o.consulTLS.ClientCert, "consul-client-cert", cenv.ClientCert, "fleet: client certificate, for verify_incoming (default $CONSUL_CLIENT_CERT)")
+	fs.StringVar(&o.consulTLS.ClientKey, "consul-client-key", cenv.ClientKey, "fleet: the client certificate's key file (default $CONSUL_CLIENT_KEY)")
+	fs.StringVar(&o.consulTLS.ServerName, "consul-tls-server-name", cenv.ServerName, "fleet: server name to verify (default $CONSUL_TLS_SERVER_NAME)")
 	fs.StringVar(&o.consulTokenEnv, "consul-token-env", "CONSUL_HTTP_TOKEN", "fleet: name of the environment variable holding the Consul ACL token")
 	fs.DurationVar(&o.timeout, "timeout", 5*time.Second, "fleet: per-node timeout")
 	fs.StringVar(&o.nomadService, "nomad-service", "", "fleet: find the endpoints in Nomad's service discovery under this name (Nomad 1.3+)")
@@ -170,6 +178,7 @@ Flags: --nomad-addr --nomad-token-env --nomad-ca-cert --nomad-ca-path --nomad-cl
        --exit-on --encoder-max --temp-max --allow-unmanaged --no-idle --no-nomad --no-docker
        --listen --interval --history
        --targets --nomad-service --nomad-namespace --consul --consul-service --consul-token-env --timeout
+       --consul-ca-cert --consul-ca-path --consul-client-cert --consul-client-key --consul-tls-server-name
 `
 }
 
@@ -401,7 +410,11 @@ func discover(ctx context.Context, o options) ([]fleet.Target, []fleet.Node) {
 		}
 		return fleet.FromNomad(svcs), nil
 	}
-	ts, err := fleet.NewConsul(o.consul, o.consulTokenEnv).Targets(ctx, o.consulService)
+	var ts []fleet.Target
+	c, err := fleet.NewConsulTLS(o.consul, o.consulTokenEnv, o.consulTLS)
+	if err == nil {
+		ts, err = c.Targets(ctx, o.consulService)
+	}
 	if err == nil && len(ts) == 0 {
 		err = fmt.Errorf("Consul has no passing instance of service %q", o.consulService)
 	}
