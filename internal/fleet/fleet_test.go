@@ -194,3 +194,10 @@ func TestSummaryCarriesEachNodesSchema(t *testing.T) {
 		t.Fatalf("%+v", s)
 	}
 }
+
+func TestTargetsFromNomadServices(t *testing.T) {
+	ts := FromNomad([]nomad.Service{{NodeID: "n2", Address: "10.0.0.5", Port: 9877}, {NodeID: "n1", Address: "fd00::4", Port: 9877}})
+	if len(ts) != 2 || ts[0] != (Target{Node: "10.0.0.5", URL: "http://10.0.0.5:9877"}) || ts[1] != (Target{Node: "fd00::4", URL: "http://[fd00::4]:9877"}) {
+		t.Fatalf("%+v", ts)
+	}
+}

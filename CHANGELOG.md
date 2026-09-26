@@ -6,6 +6,9 @@ versions follow [SemVer](https://semver.org/). Items reference their `GL-n` back
 ## [Unreleased]
 
 ### Added
+- `fleet --nomad-service NAME` (and `--nomad-namespace`): the endpoints from Nomad's
+  own service discovery, Nomad 1.3+, with the same address, token and TLS as the rest —
+  for clusters without Consul. Observed on every matrix version from 1.3 (GL-26).
 - Nomad over mutual TLS: `--nomad-ca-cert`, `--nomad-ca-path`, `--nomad-client-cert`,
   `--nomad-client-key`, `--nomad-tls-server-name`, defaulting to the Nomad CLI's
   `NOMAD_CACERT`, `NOMAD_CAPATH`, `NOMAD_CLIENT_CERT`, `NOMAD_CLIENT_KEY`,

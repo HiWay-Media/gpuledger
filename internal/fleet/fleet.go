@@ -21,6 +21,7 @@ import (
 
 	"github.com/hiway-media/gpuledger/internal/findings"
 	"github.com/hiway-media/gpuledger/internal/ledger"
+	"github.com/hiway-media/gpuledger/internal/nomad"
 )
 
 // Target is one gpuledger serve endpoint. Node is the name to report it under until
@@ -115,6 +116,17 @@ func (c *Consul) Targets(ctx context.Context, service string) ([]Target, error) 
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Node < out[j].Node })
 	return out, nil
+}
+
+// FromNomad turns Nomad service registrations into targets, sorted. A registration
+// names a node by id only; its ledger names it once read.
+func FromNomad(svcs []nomad.Service) []Target {
+	var out []Target
+	for _, sv := range svcs {
+		out = append(out, Target{Node: sv.Address, URL: "http://" + net.JoinHostPort(sv.Address, fmt.Sprint(sv.Port))})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Node < out[j].Node })
+	return out
 }
 
 // Node is one target read: its ledger, or why it could not be read.

@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -208,4 +209,23 @@ func (c *Client) Reservations(ctx context.Context, nodeID string) (out []Reserva
 		}
 	}
 	return out, allocs, nil
+}
+
+// Service is one registration in Nomad's own service discovery (provider = "nomad").
+type Service struct {
+	ServiceName string `json:"ServiceName"`
+	Namespace   string `json:"Namespace"`
+	NodeID      string `json:"NodeID"`
+	AllocID     string `json:"AllocID"`
+	Address     string `json:"Address"`
+	Port        int    `json:"Port"`
+}
+
+// Services lists a service's registrations in a namespace (Nomad 1.3+).
+func (c *Client) Services(ctx context.Context, name, namespace string) ([]Service, error) {
+	var out []Service
+	if err := c.get(ctx, "/v1/service/"+url.PathEscape(name)+"?namespace="+url.QueryEscape(namespace), "read-job on namespace "+namespace, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
