@@ -257,6 +257,24 @@ func TestFleetOverRealServeProcesses(t *testing.T) {
 		t.Fatalf("findings from both nodes: %s", js)
 	}
 
+	// The same fleet through Nomad's service discovery.
+	nm := http.NewServeMux()
+	nm.HandleFunc("/v1/service/gpuledger", func(w http.ResponseWriter, _ *http.Request) {
+		host := func(a string) string { return a[:strings.LastIndex(a, ":")] }
+		port := func(a string) string { return a[strings.LastIndex(a, ":")+1:] }
+		fmt.Fprintf(w, `[{"Address":"%s","Port":%s},{"Address":"%s","Port":%s}]`, host(addrs[0]), port(addrs[0]), host(addrs[1]), port(addrs[1]))
+	})
+	nsrv := httptest.NewServer(nm)
+	defer nsrv.Close()
+	out, err = exec.Command(bin, "fleet", "ls", "--nomad-service", "gpuledger", "--nomad-addr", nsrv.URL).Output()
+	if err != nil || !strings.Contains(string(out), "gpuledger fleet · 2 node(s) · 4 GPU(s)") {
+		t.Fatalf("via --nomad-service: %v\n%s", err, out)
+	}
+	out, _ = exec.Command(bin, "fleet", "check", "--nomad-service", "none", "--nomad-addr", nsrv.URL).Output()
+	if !strings.Contains(string(out), "source-unavailable") {
+		t.Fatalf("an unknown service is a finding: %s", out)
+	}
+
 	// Consul down is a finding, not a crash.
 	out, _ = exec.Command(bin, "fleet", "check", "--consul", "http://127.0.0.1:9").Output()
 	if !strings.Contains(string(out), "source-unavailable") || !strings.Contains(string(out), "consul") {

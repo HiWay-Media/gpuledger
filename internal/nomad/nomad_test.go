@@ -165,3 +165,37 @@ func TestTLSFromTheNomadCLIsVariables(t *testing.T) {
 		t.Fatalf("%+v", got)
 	}
 }
+
+// Nomad's own service discovery (1.3+): /v1/service/<name> lists the registrations,
+// each with the address and port the task was given.
+func TestServices(t *testing.T) {
+	var seen *http.Request
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/service/gpuledger", func(w http.ResponseWriter, r *http.Request) {
+		seen = r
+		w.Write([]byte(`[
+		 {"ServiceName":"gpuledger","Namespace":"default","NodeID":"n2","Datacenter":"dc1","AllocID":"a2","Address":"10.0.0.5","Port":9877},
+		 {"ServiceName":"gpuledger","Namespace":"default","NodeID":"n1","Datacenter":"dc1","AllocID":"a1","Address":"fd00::4","Port":9877}
+		]`))
+	})
+	mux.HandleFunc("/v1/service/none", func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte(`[]`)) })
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	t.Setenv("TEST_NOMAD_TOKEN", "s.secret")
+	c := NewClient(srv.URL, "TEST_NOMAD_TOKEN")
+	svcs, err := c.Services(context.Background(), "gpuledger", "default")
+	if err != nil || len(svcs) != 2 || svcs[0].Address != "10.0.0.5" || svcs[1].Port != 9877 || svcs[0].NodeID != "n2" {
+		t.Fatalf("%v %+v", err, svcs)
+	}
+	if seen.URL.Query().Get("namespace") != "default" || seen.Header.Get("X-Nomad-Token") != "s.secret" {
+		t.Fatalf("%s %v", seen.URL, seen.Header)
+	}
+	if svcs, err := c.Services(context.Background(), "none", "default"); err != nil || len(svcs) != 0 {
+		t.Fatalf("%v %+v", err, svcs)
+	}
+	forbidden := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(403) }))
+	defer forbidden.Close()
+	if _, err := NewClient(forbidden.URL, "").Services(context.Background(), "gpuledger", "default"); err == nil || !strings.Contains(err.Error(), "read-job") {
+		t.Fatalf("a 403 names read-job: %v", err)
+	}
+}

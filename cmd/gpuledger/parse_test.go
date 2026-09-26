@@ -86,6 +86,9 @@ func TestParseFleet(t *testing.T) {
 		t.Fatalf("CONSUL_HTTP_ADDR is the default: %v %+v", err, o)
 	}
 	t.Setenv("CONSUL_HTTP_ADDR", "")
+	if _, o, err = parse([]string{"fleet", "--nomad-service", "gpuledger"}); err != nil || o.nomadService != "gpuledger" || o.nomadNamespace != "default" {
+		t.Fatalf("Nomad's service discovery is enough: %v %+v", err, o)
+	}
 	for _, args := range [][]string{
 		{"fleet"},                                // nowhere to look
 		{"fleet", "rm", "--targets", "a:1"},      // not a fleet command

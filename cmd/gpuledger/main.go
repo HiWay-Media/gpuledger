@@ -23,7 +23,7 @@
 //	--encoder-max 0 (the card's cap)    --temp-max 85 (without a driver margin)    --allow-unmanaged    --no-idle
 //	--listen :9877     --interval 15s   (serve)
 //	--history FILE     per-GPU state and since when: serve writes it, ls and check read it
-//	--targets h:p,…    --consul $CONSUL_HTTP_ADDR  --consul-service gpuledger
+//	--targets h:p,…    --nomad-service gpuledger (Nomad 1.3+)  --consul $CONSUL_HTTP_ADDR  --consul-service gpuledger
 //	--consul-token-env CONSUL_HTTP_TOKEN (name of the variable)  --timeout 5s   (fleet)
 //
 // Reads only. Never prints a command line, an environment value or a path from a
@@ -63,6 +63,7 @@ type options struct {
 	sub, targets, consul, consulService, consulTokenEnv string
 	timeout                                             time.Duration
 	history                                             string
+	nomadService, nomadNamespace                        string
 	nomadTLS                                            nomad.TLS
 }
 
@@ -98,6 +99,8 @@ func parse(args []string) (string, options, error) {
 	fs.StringVar(&o.consulService, "consul-service", "gpuledger", "fleet: the Consul service gpuledger serve registers as")
 	fs.StringVar(&o.consulTokenEnv, "consul-token-env", "CONSUL_HTTP_TOKEN", "fleet: name of the environment variable holding the Consul ACL token")
 	fs.DurationVar(&o.timeout, "timeout", 5*time.Second, "fleet: per-node timeout")
+	fs.StringVar(&o.nomadService, "nomad-service", "", "fleet: find the endpoints in Nomad's service discovery under this name (Nomad 1.3+)")
+	fs.StringVar(&o.nomadNamespace, "nomad-namespace", "default", "fleet: the namespace of --nomad-service")
 	fs.Usage = func() { fmt.Fprint(os.Stderr, usage()) }
 	cmd := "ls"
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
@@ -130,8 +133,8 @@ func parse(args []string) (string, options, error) {
 		return "", o, fmt.Errorf("--timeout %s: must be positive", o.timeout)
 	}
 	if cmd == "fleet" {
-		if o.targets == "" && o.consul == "" {
-			return "", o, fmt.Errorf("fleet needs --targets host:port,… or --consul (or CONSUL_HTTP_ADDR)")
+		if o.targets == "" && o.consul == "" && o.nomadService == "" {
+			return "", o, fmt.Errorf("fleet needs --targets host:port,…, --nomad-service, or --consul (or CONSUL_HTTP_ADDR)")
 		}
 		if o.targets != "" {
 			if _, err := fleet.Static(o.targets); err != nil {
@@ -166,7 +169,7 @@ Flags: --nomad-addr --nomad-token-env --nomad-ca-cert --nomad-ca-path --nomad-cl
        --nomad-client-key --nomad-tls-server-name --docker --podman --nvidia-smi --proc --node --json
        --exit-on --encoder-max --temp-max --allow-unmanaged --no-idle --no-nomad --no-docker
        --listen --interval --history
-       --targets --consul --consul-service --consul-token-env --timeout
+       --targets --nomad-service --nomad-namespace --consul --consul-service --consul-token-env --timeout
 `
 }
 
@@ -375,13 +378,28 @@ func newMux(snap func() ledger.Ledger, p findings.Policy) *http.ServeMux {
 	return mux
 }
 
-// discover returns the endpoints: --targets as given, else Consul's passing instances.
+// discover returns the endpoints: --targets as given, else Nomad's registrations of
+// --nomad-service, else Consul's passing instances.
 // A discovery that fails, or finds nothing, is reported as a node that could not be
 // read, so it lands in the table and the findings like any other unreadable source.
 func discover(ctx context.Context, o options) ([]fleet.Target, []fleet.Node) {
 	if o.targets != "" {
 		ts, _ := fleet.Static(o.targets) // validated by parse
 		return ts, nil
+	}
+	if o.nomadService != "" {
+		nc, err := nomad.NewTLSClient(o.nomadAddr, o.tokenEnv, o.nomadTLS)
+		var svcs []nomad.Service
+		if err == nil {
+			svcs, err = nc.Services(ctx, o.nomadService, o.nomadNamespace)
+		}
+		if err == nil && len(svcs) == 0 {
+			err = fmt.Errorf("Nomad has no registration of service %q in namespace %q", o.nomadService, o.nomadNamespace)
+		}
+		if err != nil {
+			return nil, []fleet.Node{{Target: fleet.Target{Node: "nomad", URL: o.nomadAddr}, Err: err.Error()}}
+		}
+		return fleet.FromNomad(svcs), nil
 	}
 	ts, err := fleet.NewConsul(o.consul, o.consulTokenEnv).Targets(ctx, o.consulService)
 	if err == nil && len(ts) == 0 {

@@ -533,12 +533,13 @@ node { policy = "read" }`)
 	}
 
 	if promtool := os.Getenv("PROMTOOL"); promtool != "" {
-		metrics(t, bin, smi, a.addr, minimal, promtool, a.labels)
+		metrics(t, a, bin, smi, minimal, promtool)
 	}
 }
 
 // metrics serves once and hands /metrics to promtool check metrics.
-func metrics(t *testing.T, bin, smi, addr, token, promtool string, labels bool) {
+func metrics(t *testing.T, a *agent, bin, smi, token, promtool string) {
+	addr, labels := a.addr, a.labels
 	listen := fmt.Sprintf("127.0.0.1:%d", freePort(t))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -607,6 +608,8 @@ func metrics(t *testing.T, bin, smi, addr, token, promtool string, labels bool) 
 	if promBin := os.Getenv("PROMETHEUS_BIN"); promBin != "" {
 		dashboardAgainstPrometheus(t, promBin, listen, labels)
 	}
+
+	viaNomadServices(t, a, bin, listen, token)
 
 	if consulBin := os.Getenv("CONSUL_BIN"); consulBin != "" {
 		viaConsul(t, bin, consulBin, listen)
@@ -911,4 +914,36 @@ func TestMutualTLSAgainstARealNomad(t *testing.T) {
 	if !bytes.Contains(out, []byte("certificate")) {
 		t.Errorf("not trusting the agent's CA:\n%s", out)
 	}
+}
+
+// viaNomadServices registers the serving node in Nomad's own service discovery — a job
+// whose service has provider "nomad" on the serve port — and reads the fleet through
+// it, with the policy file's token. Nomad before 1.3 has no /v1/services: skipped there.
+func viaNomadServices(t *testing.T, a *agent, bin, listen, token string) {
+	if code, _ := a.do("GET", "/v1/services", a.mgmt, nil, nil); code == 404 {
+		t.Log("no Nomad service discovery on this version (before 1.3): fleet --nomad-service not tested")
+		return
+	}
+	_, p, _ := net.SplitHostPort(listen)
+	port := atoi(p)
+	a.must("POST", "/v1/jobs", map[string]any{"Job": map[string]any{
+		"ID": "svc", "Name": "svc", "Type": "service", "Datacenters": []string{"dc1"},
+		"TaskGroups": []any{map[string]any{
+			"Name": "g", "Count": 1,
+			"Networks": []any{map[string]any{"ReservedPorts": []any{map[string]any{"Label": "http", "Value": port}}}},
+			"Services": []any{map[string]any{"Name": "gpuledger", "PortLabel": "http", "Provider": "nomad"}},
+			"Tasks": []any{map[string]any{"Name": "t", "Driver": "docker",
+				"Config":    map[string]any{"image": image, "command": "sleep", "args": []string{"3600"}},
+				"Resources": map[string]any{"CPU": 50, "MemoryMB": 32}}},
+		}},
+	}}, nil)
+	defer a.do("DELETE", "/v1/job/svc?purge=true", a.mgmt, nil, nil)
+	var out []byte
+	eventually(t, "the node through Nomad's service discovery", 60*time.Second, func() (bool, string) {
+		cmd := exec.Command(bin, "fleet", "ls", "--json", "--nomad-service", "gpuledger", "--nomad-addr", a.addr, "--nomad-token-env", "GL_IT_TOKEN")
+		cmd.Env = append(os.Environ(), "GL_IT_TOKEN="+token)
+		out, _ = cmd.Output()
+		return bytes.Contains(out, []byte(`"node":"it"`)) && bytes.Contains(out, []byte(`"gpus":3`)) && !bytes.Contains(out, []byte(`"unreachable"`)), string(out)
+	})
+	t.Logf("fleet via Nomad services: %s", bytes.TrimSpace(out))
 }
