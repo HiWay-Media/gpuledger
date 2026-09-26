@@ -1034,10 +1034,12 @@ tls {
 	}
 }
 
-// TestWorkloadIdentity asks whether the token Nomad gives a task (identity { env = true })
-// can stand in for gpuledger's static token: the policy file bound to the job, the
-// task's NOMAD_TOKEN read from its environment, and gpuledger run with it. Skipped where
-// the version has no job-bound policies.
+// TestWorkloadIdentity checks the token Nomad gives a task (identity { env = true })
+// stands in for gpuledger's static token: the policy file bound to the job, the task's
+// NOMAD_TOKEN, and gpuledger with --nomad-node-id, as the workload identity job spec
+// runs it. Before 1.11 the local agent's /v1/agent/self refuses a workload identity
+// (HTTP 500), which is why the node id is passed. Skipped where the version has no
+// job-bound policies (before 1.4) or gives the task no token (1.4).
 func TestWorkloadIdentity(t *testing.T) {
 	a := start(t, startOpts{})
 	policy, err := os.ReadFile("../deploy/nomad/gpuledger.policy.hcl")
@@ -1068,18 +1070,28 @@ func TestWorkloadIdentity(t *testing.T) {
 		}
 	}
 	if tok == "" {
-		t.Fatal("the task has no NOMAD_TOKEN with identity { env = true }")
+		t.Skip("identity { env = true } gives the task no NOMAD_TOKEN on this version")
 	}
-	kind := "an ACL secret"
-	if strings.Count(tok, ".") == 2 {
-		kind = "a JWT"
+	var nodes []struct{ ID string }
+	a.must("GET", "/v1/nodes", nil, &nodes)
+
+	var l struct {
+		NomadRead bool
+		Errors    []string
 	}
-	for _, path := range []string{"/v1/agent/self", "/v1/nodes", "/v1/job/wi/allocations"} {
-		code, err := a.do("GET", path, tok, nil, nil)
-		t.Logf("workload identity (%s) GET %s: %d %v", kind, path, code, err)
+	out := gl(t, a, tok, "ls", "--json", "--no-docker", "--nomad-node-id", nodes[0].ID)
+	if err := json.Unmarshal(out, &l); err != nil || !l.NomadRead || len(l.Errors) != 0 {
+		t.Errorf("gpuledger with the workload identity and --nomad-node-id:\n%s", out)
 	}
-	out := gl(t, a, tok, "ls", "--json", "--no-docker")
-	t.Logf("gpuledger with the workload identity: %s", bytes.TrimSpace(out))
+	code, _ := a.do("GET", "/v1/agent/self", tok, nil, nil)
+	t.Logf("workload identity on /v1/agent/self: HTTP %d (500 before Nomad 1.11)", code)
+
+	// The job spec that runs this way is valid here.
+	cmd := exec.Command(os.Getenv("NOMAD_BIN"), "job", "validate", "-var", `datacenters=["dc1"]`, "-var", "checksum=sha256:"+strings.Repeat("0", 64), "../deploy/nomad/gpuledger.wi.nomad.hcl")
+	cmd.Env = append(os.Environ(), "NOMAD_ADDR="+a.addr, "NOMAD_TOKEN="+a.mgmt)
+	if b, err := cmd.CombinedOutput(); err != nil {
+		t.Errorf("nomad job validate deploy/nomad/gpuledger.wi.nomad.hcl: %v\n%s", err, b)
+	}
 }
 
 // gl runs gpuledger against the agent with a token, the fake driver answering with no GPU.

@@ -64,7 +64,7 @@ type options struct {
 	sub, targets, consul, consulService, consulTokenEnv string
 	timeout                                             time.Duration
 	history                                             string
-	nomadService, nomadNamespace                        string
+	nomadService, nomadNamespace, nomadNodeID           string
 	nomadTLS                                            nomad.TLS
 	consulTLS                                           tlsfiles.Files
 }
@@ -79,6 +79,7 @@ func parse(args []string) (string, options, error) {
 	fs.StringVar(&o.nomadTLS.ClientCert, "nomad-client-cert", env.ClientCert, "client certificate, for verify_https_client (default $NOMAD_CLIENT_CERT)")
 	fs.StringVar(&o.nomadTLS.ClientKey, "nomad-client-key", env.ClientKey, "the client certificate's key file (default $NOMAD_CLIENT_KEY)")
 	fs.StringVar(&o.nomadTLS.ServerName, "nomad-tls-server-name", env.ServerName, "server name to verify, e.g. server.global.nomad (default $NOMAD_TLS_SERVER_NAME)")
+	fs.StringVar(&o.nomadNodeID, "nomad-node-id", "", "this node's Nomad id, skipping /v1/agent/self — the system job passes ${node.unique.id}; needed with a workload identity before Nomad 1.11")
 	fs.StringVar(&o.tokenEnv, "nomad-token-env", "NOMAD_TOKEN", "name of the environment variable holding the Nomad ACL token")
 	fs.StringVar(&o.docker, "docker", envOr("DOCKER_HOST", "unix:///var/run/docker.sock"), "Docker endpoint (unix:// or http://)")
 	fs.StringVar(&o.podman, "podman", "auto", "Podman endpoint (its Docker-compatible API); auto: "+podmanSocket+" when it exists; off")
@@ -173,7 +174,7 @@ func usage() string {
   gpuledger fleet check  every node's findings, one policy, worst first (--json, --exit-on)
   gpuledger version
 
-Flags: --nomad-addr --nomad-token-env --nomad-ca-cert --nomad-ca-path --nomad-client-cert
+Flags: --nomad-addr --nomad-token-env --nomad-node-id --nomad-ca-cert --nomad-ca-path --nomad-client-cert
        --nomad-client-key --nomad-tls-server-name --docker --podman --nvidia-smi --proc --node --json
        --exit-on --encoder-max --temp-max --allow-unmanaged --no-idle --no-nomad --no-docker
        --listen --interval --history
@@ -228,8 +229,8 @@ func collect(ctx context.Context, o options) ledger.Ledger {
 	}
 	if !o.noNomad {
 		nc, err := nomad.NewTLSClient(o.nomadAddr, o.tokenEnv, o.nomadTLS)
-		nodeID := ""
-		if err == nil {
+		nodeID := o.nomadNodeID
+		if err == nil && nodeID == "" {
 			nodeID, err = nc.NodeID(ctx)
 		}
 		if err != nil {
