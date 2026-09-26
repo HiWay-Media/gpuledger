@@ -146,11 +146,13 @@ matrix, on every version that has the feature.
   the Nomad CLI reads them; paths only, never key material in a flag. The matrix runs an
   agent with `tls { http = true, verify_https_client = true }` from certificates it makes.
   <!-- gl: prio=med size=M labels=collector,tests ver=main -->
-- [ ] **GL-25 — Workload identity instead of a token**: from Nomad 1.7 the system job can
+- [x] **GL-25 — Workload identity instead of a token**: from Nomad 1.7 the system job can
   take `identity { env = true }` and a job-bound ACL policy, so no static token exists to
   leak or rotate. Establish in the matrix which of `agent:read`, `node:read` and
   `read-job` a workload-associated policy can carry, and ship the job variant that works,
-  keeping the token path for older clusters. <!-- gl: prio=med size=M labels=collector,docs -->
+  keeping the token path for older clusters. Established: the policy file bound to the
+  job works from 1.5, but `/v1/agent/self` refuses a workload identity before 1.11 —
+  hence `--nomad-node-id` and `gpuledger.wi.nomad.hcl`. <!-- gl: prio=med size=M labels=collector,docs ver=main -->
 - [x] **GL-26 — Fleet through Nomad's service discovery**: `fleet --nomad-service
   gpuledger` reads `/v1/service/<name>` (Nomad 1.3+), so a cluster without Consul finds
   its nodes. The system job leaves `provider` out — it would stop validating before 1.3 —

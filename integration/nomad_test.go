@@ -1033,3 +1033,79 @@ tls {
 		t.Errorf("Consul refuses a client without a certificate, and the fleet says so: %s", out)
 	}
 }
+
+// TestWorkloadIdentity checks the token Nomad gives a task (identity { env = true })
+// stands in for gpuledger's static token: the policy file bound to the job, the task's
+// NOMAD_TOKEN, and gpuledger with --nomad-node-id, as the workload identity job spec
+// runs it. Before 1.11 the local agent's /v1/agent/self refuses a workload identity
+// (HTTP 500), which is why the node id is passed. Skipped where the version has no
+// job-bound policies (before 1.4) or gives the task no token (1.4).
+func TestWorkloadIdentity(t *testing.T) {
+	a := start(t, startOpts{})
+	policy, err := os.ReadFile("../deploy/nomad/gpuledger.policy.hcl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.must("POST", "/v1/acl/policy/gpuledger-wi", map[string]any{"Name": "gpuledger-wi", "Rules": string(policy), "JobACL": map[string]any{"Namespace": "default", "JobID": "wi"}}, nil)
+	var back struct{ JobACL *struct{ JobID string } }
+	a.must("GET", "/v1/acl/policy/gpuledger-wi", nil, &back)
+	if back.JobACL == nil || back.JobACL.JobID != "wi" {
+		t.Skip("no job-bound ACL policies on this version")
+	}
+	job := gpuJob("wi", "default")
+	task := job["Job"].(map[string]any)["TaskGroups"].([]any)[0].(map[string]any)["Tasks"].([]any)[0].(map[string]any)
+	task["Identity"] = map[string]any{"Env": true}
+	a.must("POST", "/v1/jobs", job, nil)
+	t.Cleanup(func() {
+		a.do("DELETE", "/v1/job/wi?purge=true", a.mgmt, nil, nil)
+		time.Sleep(3 * time.Second)
+	})
+	alloc, _ := a.running("wi", "default")
+	cid := sh(t, "docker", "ps", "-q", "--no-trunc", "--filter", "label=com.hashicorp.nomad.alloc_id="+alloc.ID)
+	env := sh(t, "docker", "inspect", "-f", "{{range .Config.Env}}{{println .}}{{end}}", cid)
+	tok := ""
+	for _, line := range strings.Split(env, "\n") {
+		if strings.HasPrefix(line, "NOMAD_TOKEN=") {
+			tok = strings.TrimPrefix(line, "NOMAD_TOKEN=")
+		}
+	}
+	if tok == "" {
+		t.Skip("identity { env = true } gives the task no NOMAD_TOKEN on this version")
+	}
+	var nodes []struct{ ID string }
+	a.must("GET", "/v1/nodes", nil, &nodes)
+
+	var l struct {
+		NomadRead bool
+		Errors    []string
+	}
+	out := gl(t, a, tok, "ls", "--json", "--no-docker", "--nomad-node-id", nodes[0].ID)
+	if err := json.Unmarshal(out, &l); err != nil || !l.NomadRead || len(l.Errors) != 0 {
+		t.Errorf("gpuledger with the workload identity and --nomad-node-id:\n%s", out)
+	}
+	code, _ := a.do("GET", "/v1/agent/self", tok, nil, nil)
+	t.Logf("workload identity on /v1/agent/self: HTTP %d (500 before Nomad 1.11)", code)
+
+	// The job spec that runs this way is valid here.
+	cmd := exec.Command(os.Getenv("NOMAD_BIN"), "job", "validate", "-var", `datacenters=["dc1"]`, "-var", "checksum=sha256:"+strings.Repeat("0", 64), "../deploy/nomad/gpuledger.wi.nomad.hcl")
+	cmd.Env = append(os.Environ(), "NOMAD_ADDR="+a.addr, "NOMAD_TOKEN="+a.mgmt)
+	if b, err := cmd.CombinedOutput(); err != nil {
+		t.Errorf("nomad job validate deploy/nomad/gpuledger.wi.nomad.hcl: %v\n%s", err, b)
+	}
+}
+
+// gl runs gpuledger against the agent with a token, the fake driver answering with no GPU.
+func gl(t *testing.T, a *agent, token string, args ...string) []byte {
+	dir := t.TempDir()
+	smi := filepath.Join(dir, "nvidia-smi")
+	os.WriteFile(smi, []byte("#!/bin/sh\ntrue\n"), 0o755)
+	bin := os.Getenv("GPULEDGER_BIN")
+	if bin == "" {
+		bin = filepath.Join(dir, "gpuledger")
+		sh(t, "go", "build", "-o", bin, "../cmd/gpuledger")
+	}
+	cmd := exec.Command(bin, append(args, "--nvidia-smi", smi, "--nomad-addr", a.addr, "--nomad-token-env", "GL_IT_TOKEN", "--node", "it")...)
+	cmd.Env = append(os.Environ(), "GL_IT_TOKEN="+token)
+	out, _ := cmd.Output()
+	return out
+}

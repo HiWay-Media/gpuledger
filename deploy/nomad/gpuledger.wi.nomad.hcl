@@ -1,11 +1,14 @@
-# gpuledger as a Nomad system job: one instance per GPU node, exposing /metrics on
-# port 9877 and registering in Consul for Prometheus to scrape. It reads nvidia-smi,
-# the Docker socket (read-only) and the local Nomad agent; it writes nothing.
+# gpuledger as a Nomad system job, Nomad 1.5+, with no static token: the task's
+# workload identity is its token (identity { env = true } sets NOMAD_TOKEN), and the ACL
+# policy is bound to this job. The Nomad matrix runs this on every version that has
+# job-bound policies (integration/nomad_test.go: TestWorkloadIdentity).
 #
+#   nomad acl policy apply -namespace default -job gpuledger \
+#     -description "gpuledger: read-only GPU ledger" gpuledger-job deploy/nomad/gpuledger.policy.hcl
+#   nomad job run -var version=V -var checksum=sha256:… deploy/nomad/gpuledger.wi.nomad.hcl
 #
-#   nomad job run -var version=V -var checksum=sha256:… deploy/nomad/gpuledger.nomad.hcl
-#
-# The checksum is required: the artifact is verified before it runs.
+# --nomad-node-id is not optional here: before Nomad 1.11 the local agent's
+# /v1/agent/self does not accept a workload identity (it answers 500).
 
 variable "version" {
   type    = string
@@ -68,6 +71,10 @@ job "gpuledger" {
     }
 
     task "gpuledger" {
+      identity {
+        env = true
+      }
+
       # raw_exec, not docker: nvidia-smi and the host's /proc are what the ledger reads.
       driver = "raw_exec"
 
@@ -88,9 +95,6 @@ job "gpuledger" {
 
       env {
         NOMAD_ADDR = "http://127.0.0.1:4646"
-        # The ACL token, when the cluster has ACLs: name the variable, never inline it.
-        # NOMAD_TOKEN is read from the environment by --nomad-token-env (default NOMAD_TOKEN);
-        # the policy it needs is gpuledger.policy.hcl beside this file.
         # With the agent's API over TLS, the host's certificates by path, e.g.:
         #   NOMAD_ADDR        = "https://127.0.0.1:4646"
         #   NOMAD_CACERT      = "/etc/nomad.d/tls/ca.pem"

@@ -445,3 +445,29 @@ func TestCheckOverMutualTLS(t *testing.T) {
 		t.Fatalf("half a key pair: %s", out)
 	}
 }
+
+// --nomad-node-id skips /v1/agent/self: a workload identity cannot read it before
+// Nomad 1.11 (the local agent answers 500), and the system job knows its node anyway.
+func TestNomadNodeIDSkipsAgentSelf(t *testing.T) {
+	bin := build(t)
+	nm := http.NewServeMux()
+	nm.HandleFunc("/v1/agent/self", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(500)
+		w.Write([]byte("failed to resolve ACL token: acl token lookup failed: index error: UUID must be 36 characters"))
+	})
+	nm.HandleFunc("/v1/node/n1/allocations", func(w http.ResponseWriter, _ *http.Request) {
+		w.Write([]byte(`[{"ID":"77777777-0000-0000-0000-000000000000","JobID":"worker","ClientStatus":"running","AllocatedResources":{"Tasks":{"w":{"Devices":[{"Type":"gpu","Vendor":"nvidia","DeviceIDs":["GPU-ac81e44d-1234-4d1e-9d53-abcdefabcdef"]}]}}}}]`))
+	})
+	srv := httptest.NewServer(nm)
+	defer srv.Close()
+	root, _ := filepath.Abs("../../testdata")
+	base := []string{"check", "--json", "--nvidia-smi", filepath.Join(root, "fake-nvidia-smi.sh"), "--proc", filepath.Join(root, "proc"), "--no-docker", "--nomad-addr", srv.URL, "--node", "gpud"}
+	out, _ := exec.Command(bin, append(base, "--nomad-node-id", "n1")...).Output()
+	if strings.Contains(string(out), "source-unavailable") || !strings.Contains(string(out), `"reserved-idle"`) {
+		t.Fatalf("with --nomad-node-id: %s", out)
+	}
+	out, _ = exec.Command(bin, base...).Output()
+	if !strings.Contains(string(out), "HTTP 500") {
+		t.Fatalf("without it, the agent's 500 is the finding: %s", out)
+	}
+}
