@@ -81,6 +81,11 @@ job "gpuledger" {
         # The ACL token, when the cluster has ACLs: name the variable, never inline it.
         # NOMAD_TOKEN is read from the environment by --nomad-token-env (default NOMAD_TOKEN);
         # the policy it needs is gpuledger.policy.hcl beside this file.
+        # With the agent's API over TLS, the host's certificates by path, e.g.:
+        #   NOMAD_ADDR        = "https://127.0.0.1:4646"
+        #   NOMAD_CACERT      = "/etc/nomad.d/tls/ca.pem"
+        #   NOMAD_CLIENT_CERT = "/etc/nomad.d/tls/cli.pem"
+        #   NOMAD_CLIENT_KEY  = "/etc/nomad.d/tls/cli-key.pem"
       }
 
       resources {
