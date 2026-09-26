@@ -5,6 +5,20 @@ versions follow [SemVer](https://semver.org/). Items reference their `GL-n` back
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-09-26
+
+A hardened cluster: Nomad and Consul over mutual TLS, a workload identity in place of a
+static token, `fleet` through Nomad's own service discovery, and release binaries with
+build provenance. Every item observed in the Nomad matrix on each version that has the
+feature; the driver side, as before, only against a fake nvidia-smi (GL-10, v0.4.0).
+
+**Upgrading from 0.2.0**
+- The system job now **requires** `-var checksum=sha256:…` of the binary, from the
+  release's checksums file (README: Run it); Nomad refuses a download that does not match.
+- Both job specs pass `--nomad-node-id ${node.unique.id}`; nothing to do unless you run
+  gpuledger by other means with a workload identity before Nomad 1.11.
+- This is the first release with build provenance: `gh attestation verify` (README: Install).
+
 ### Added
 - `--nomad-node-id`: the node's Nomad id given, `/v1/agent/self` is not called. Both
   job specs pass `${node.unique.id}` (GL-25).

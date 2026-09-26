@@ -138,7 +138,7 @@ BACKLOG.md / ROADMAP.md      single source of truth (GL-n ids) / generated view
   Service:{Address,Port}}]`; `Service.Address` empty means the node's; token in
   `X-Consul-Token`.
 - **NVENC** (developer.nvidia.com/video-encode-decode-support-matrix — the page moved from
-  …-gpu-support-matrix-new; read in a browser for 0.2.0, 2026-09-25): concurrent sessions
+  …-gpu-support-matrix-new; read in a browser for 0.2.0, 2026-09-25, and again for 0.3.0, 2026-09-26 — unchanged): concurrent sessions
   "Unrestricted" on Quadro RTX 4000 (Turing, 7th gen), L4 (Ada, 8th), T4 (Turing, 7th),
   A10 (Ampere, 7th); GeForce 12 on every line (GTX 1080, RTX 4090, RTX 5090) — it was 8 in
   2024–25, re-check before each tag. NVENC engines: 1, 2, 1, 1.

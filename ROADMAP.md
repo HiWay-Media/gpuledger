@@ -12,8 +12,8 @@
 |---|---|---|---|---|
 | **v0.1.0 — One node, told the truth** | shipped | `##########` 100% | 0 | 11 |
 | **v0.2.0 — The whole cluster, watched** | shipped | `##########` 100% | 0 | 8 |
-| **v0.3.0 — Told by the hardware** | now | `..........` 0% | 4 | 0 |
-| **v0.4.0 — A hardened cluster** | next | `##########` 100% | 0 | 5 |
+| **v0.3.0 — A hardened cluster** | shipped | `##########` 100% | 0 | 5 |
+| **v0.4.0 — Told by the hardware** | now | `..........` 0% | 4 | 0 |
 
 ## v0.1.0 — One node, told the truth
 
@@ -40,17 +40,17 @@
 - [x] **GL-19** — Grafana dashboard · low · S · docs · `0.2.0`
 - [x] **GL-20** — Stable JSON · med · S · ledger, tests · `0.2.0`
 
-## v0.3.0 — Told by the hardware
+## v0.3.0 — A hardened cluster
+
+- [x] **GL-24** — Nomad over mTLS · med · M · collector, tests · `0.3.0`
+- [x] **GL-25** — Workload identity instead of a token · med · M · collector, docs · `0.3.0`
+- [x] **GL-26** — Fleet through Nomad's service discovery · med · S · enhancement, tests · `0.3.0`
+- [x] **GL-27** — Consul over TLS · low · S · enhancement, tests · `0.3.0`
+- [x] **GL-28** — Verifiable releases · med · S · release, docs · `0.3.0`
+
+## v0.4.0 — Told by the hardware
 
 - [ ] **GL-10** — First run on a real node · high · S · benchmark
 - [ ] **GL-11** — Encoder-only sessions · med · M · collector
 - [ ] **GL-1** — Run QRSPI on the brief: Questions → Research → Spec → Plan · high · L · ledger
 - [ ] **GL-23** — containerd · low · M · collector
-
-## v0.4.0 — A hardened cluster
-
-- [x] **GL-24** — Nomad over mTLS · med · M · collector, tests · `main`
-- [x] **GL-25** — Workload identity instead of a token · med · M · collector, docs · `main`
-- [x] **GL-26** — Fleet through Nomad's service discovery · med · S · enhancement, tests · `main`
-- [x] **GL-27** — Consul over TLS · low · S · enhancement, tests · `main`
-- [x] **GL-28** — Verifiable releases · med · S · release, docs · `main`
