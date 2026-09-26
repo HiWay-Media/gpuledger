@@ -140,12 +140,12 @@ mutual TLS, no long-lived ACL token to hand out, no Consul required to find the 
 and release binaries whose origin can be verified. Each item is observed in the Nomad
 matrix, on every version that has the feature.
 
-- [ ] **GL-24 — Nomad over mTLS**: `https://` agents with a CA and a client certificate —
+- [x] **GL-24 — Nomad over mTLS**: `https://` agents with a CA and a client certificate —
   `--nomad-ca-cert`, `--nomad-client-cert`, `--nomad-client-key`, defaulting to
   `NOMAD_CACERT`, `NOMAD_CLIENT_CERT`, `NOMAD_CLIENT_KEY` and `NOMAD_TLS_SERVER_NAME` as
   the Nomad CLI reads them; paths only, never key material in a flag. The matrix runs an
   agent with `tls { http = true, verify_https_client = true }` from certificates it makes.
-  <!-- gl: prio=med size=M labels=collector,tests -->
+  <!-- gl: prio=med size=M labels=collector,tests ver=main -->
 - [ ] **GL-25 — Workload identity instead of a token**: from Nomad 1.7 the system job can
   take `identity { env = true }` and a job-bound ACL policy, so no static token exists to
   leak or rotate. Establish in the matrix which of `agent:read`, `node:read` and

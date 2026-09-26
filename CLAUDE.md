@@ -31,6 +31,8 @@ internal/fleet/              every node's /ledger (static targets or Consul heal
                              and job, Findings with one policy; a node not read is a Node with Err
 internal/cards/               per-card NVENC engines and session caps from NVIDIA's support matrix, each with
                              its source; exact nvidia-smi names ("NVIDIA A10" is not an A10G or an A100)
+internal/testcerts/          a throwaway CA, server and client certificate for tests (unit and matrix);
+                             imported by tests only
 internal/metrics/            Prometheus text exposition, hand-written
 internal/render/             the table and the findings text
 internal/version/            Version, set by -ldflags at release
@@ -100,6 +102,10 @@ BACKLOG.md / ROADMAP.md      single source of truth (GL-n ids) / generated view
   `<task>-<alloc id>`; its cgroup is `/nomad.slice/libpod-<id>.scope/container`; conmon
   sits in `libpod-conmon-<id>.scope`. An alloc id from the name counts only when Nomad
   returns that allocation.
+- **Nomad over mTLS** (same runs, Nomad 1.0.18 – 2.0.7): `tls { http, rpc, ca_file,
+  cert_file, key_file, verify_server_hostname, verify_https_client }` on a -dev agent
+  with one certificate naming `server.global.nomad`, `client.global.nomad`, `localhost`
+  and 127.0.0.1; a client without a certificate is refused at the handshake.
 - **Nomad ACLs** (same runs): `/v1/agent/self` needs `agent:read`, `/v1/node/<id>/allocations`
   needs `node:read` and returns only the allocations in namespaces where the token has
   `read-job`, with no error. `deploy/nomad/gpuledger.policy.hcl` is the tested minimum.

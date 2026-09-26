@@ -168,6 +168,15 @@ one is easy to miss: without it Nomad answers the node's allocations **without**
 namespace's, and no error — gpuledger reports `source-unavailable` for each Nomad
 container whose allocation it cannot see rather than calling it unreserved.
 
+**Over mutual TLS**, an agent with `tls { http = true }` and `verify_https_client`:
+`--nomad-addr https://127.0.0.1:4646` and the certificates by path — `--nomad-ca-cert`
+(or `--nomad-ca-path`), `--nomad-client-cert`, `--nomad-client-key`,
+`--nomad-tls-server-name` — each defaulting to the variable the Nomad CLI reads
+(`NOMAD_CACERT`, `NOMAD_CAPATH`, `NOMAD_CLIENT_CERT`, `NOMAD_CLIENT_KEY`,
+`NOMAD_TLS_SERVER_NAME`), so a shell already set up for `nomad` works as is. Key
+material never goes in a flag. A refused handshake is a `source-unavailable` that says
+TLS; half a key pair is refused before any request.
+
 **Podman** is read next to Docker when `/run/podman/podman.sock` exists (`--podman off`
 to skip it, or an endpoint of your own); a Podman endpoint you name that cannot be read
 is a `source-unavailable`, the default one that does not exist is simply no Podman.
@@ -223,6 +232,8 @@ Both are in `/ledger` and in `/metrics` as `gpuledger_gpu_thermal_margin_celsius
 The [Nomad matrix](.github/workflows/nomad.yml) runs on every change and weekly: the
 latest patch of every Nomad minor from 1.0, read from releases.hashicorp.com at run time,
 plus 1.7.3. On each, `integration/nomad_test.go` starts `nomad agent -dev` with ACLs on
+(and, in a test of its own, with its API over mTLS, `verify_https_client` and
+`verify_server_hostname` on)
 and Nomad's example device plugin rebuilt as vendor `nvidia`, type `gpu`, runs two
 Docker jobs that ask for `device "nvidia/gpu"` — one in a second namespace — and a
 container outside Nomad, and checks with the policy file's token that gpuledger says

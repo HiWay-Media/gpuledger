@@ -114,3 +114,17 @@ func TestPodmanDefaultIsTheSocketWhenItExists(t *testing.T) {
 		t.Fatalf("explicit: %q", got)
 	}
 }
+
+func TestNomadTLSFlagsDefaultToTheCLIsVariables(t *testing.T) {
+	t.Setenv("NOMAD_CACERT", "/etc/nomad.d/ca.pem")
+	t.Setenv("NOMAD_CLIENT_CERT", "/etc/nomad.d/cli.pem")
+	t.Setenv("NOMAD_CLIENT_KEY", "/etc/nomad.d/cli-key.pem")
+	_, o, err := parse([]string{"check"})
+	if err != nil || o.nomadTLS.CACert != "/etc/nomad.d/ca.pem" || o.nomadTLS.ClientCert != "/etc/nomad.d/cli.pem" || o.nomadTLS.ClientKey != "/etc/nomad.d/cli-key.pem" {
+		t.Fatalf("%v %+v", err, o.nomadTLS)
+	}
+	_, o, _ = parse([]string{"check", "--nomad-ca-cert", "/x/ca.pem", "--nomad-tls-server-name", "server.global.nomad"})
+	if o.nomadTLS.CACert != "/x/ca.pem" || o.nomadTLS.ServerName != "server.global.nomad" || o.nomadTLS.ClientCert != "/etc/nomad.d/cli.pem" {
+		t.Fatalf("a flag wins over its variable: %+v", o.nomadTLS)
+	}
+}

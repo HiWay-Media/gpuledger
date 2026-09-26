@@ -4,10 +4,13 @@ package nomad
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -33,6 +36,77 @@ type Client struct {
 // NewClient reads the ACL token from the environment variable named by tokenEnv
 // (never from a flag or a file), so the token is neither on the command line nor logged.
 func NewClient(addr, tokenEnv string) *Client {
+	c, _ := NewTLSClient(addr, tokenEnv, TLS{})
+	return c
+}
+
+// TLS is how to reach an agent whose HTTP API has tls { http = true }: the CA to trust
+// (a file, or a directory of them) and, for verify_https_client, the client's
+// certificate. Paths only — key material never passes through a flag.
+type TLS struct {
+	CACert, CAPath, ClientCert, ClientKey, ServerName string
+}
+
+// TLSFromEnv reads the variables the Nomad CLI reads.
+func TLSFromEnv() TLS {
+	return TLS{CACert: os.Getenv("NOMAD_CACERT"), CAPath: os.Getenv("NOMAD_CAPATH"), ClientCert: os.Getenv("NOMAD_CLIENT_CERT"), ClientKey: os.Getenv("NOMAD_CLIENT_KEY"), ServerName: os.Getenv("NOMAD_TLS_SERVER_NAME")}
+}
+
+// config is nil when nothing is set: the system's roots, no client certificate.
+func (t TLS) config() (*tls.Config, error) {
+	if t == (TLS{}) {
+		return nil, nil
+	}
+	cfg := &tls.Config{ServerName: t.ServerName, MinVersion: tls.VersionTLS12}
+	if t.CACert != "" || t.CAPath != "" {
+		pool := x509.NewCertPool()
+		files := []string{}
+		if t.CACert != "" {
+			files = append(files, t.CACert)
+		}
+		if t.CAPath != "" {
+			entries, err := os.ReadDir(t.CAPath)
+			if err != nil {
+				return nil, fmt.Errorf("--nomad-ca-path %s: %w", t.CAPath, err)
+			}
+			n := 0
+			for _, e := range entries {
+				if !e.IsDir() && (strings.HasSuffix(e.Name(), ".pem") || strings.HasSuffix(e.Name(), ".crt")) {
+					files = append(files, filepath.Join(t.CAPath, e.Name()))
+					n++
+				}
+			}
+			if n == 0 {
+				return nil, fmt.Errorf("--nomad-ca-path %s: no .pem or .crt file", t.CAPath)
+			}
+		}
+		for _, f := range files {
+			b, err := os.ReadFile(f)
+			if err != nil {
+				return nil, fmt.Errorf("--nomad-ca-cert %s: %w", f, err)
+			}
+			if !pool.AppendCertsFromPEM(b) {
+				return nil, fmt.Errorf("--nomad-ca-cert %s: no PEM certificate in it", f)
+			}
+		}
+		cfg.RootCAs = pool
+	}
+	if (t.ClientCert == "") != (t.ClientKey == "") {
+		return nil, fmt.Errorf("--nomad-client-cert and --nomad-client-key go together")
+	}
+	if t.ClientCert != "" {
+		cert, err := tls.LoadX509KeyPair(t.ClientCert, t.ClientKey)
+		if err != nil {
+			return nil, fmt.Errorf("--nomad-client-cert %s / --nomad-client-key: %w", t.ClientCert, err)
+		}
+		cfg.Certificates = []tls.Certificate{cert}
+	}
+	return cfg, nil
+}
+
+// NewTLSClient is NewClient for an agent over TLS. An error means the certificates
+// could not be read — a source error, reported before any request is made.
+func NewTLSClient(addr, tokenEnv string, t TLS) (*Client, error) {
 	if addr == "" {
 		addr = "http://127.0.0.1:4646"
 	}
@@ -40,11 +114,17 @@ func NewClient(addr, tokenEnv string) *Client {
 	if tokenEnv != "" {
 		tok = os.Getenv(tokenEnv)
 	}
-	return &Client{http: &http.Client{Timeout: 5 * time.Second}, addr: strings.TrimRight(addr, "/"), token: tok}
+	c := &Client{http: &http.Client{Timeout: 5 * time.Second}, addr: strings.TrimRight(addr, "/"), token: tok}
+	cfg, err := t.config()
+	if err != nil {
+		return c, err
+	}
+	if cfg != nil {
+		c.http.Transport = &http.Transport{TLSClientConfig: cfg, Proxy: http.ProxyFromEnvironment}
+	}
+	return c, nil
 }
 
-// get decodes one GET. need names the ACL capability the path requires, so a 403 says
-// what the token lacks.
 func (c *Client) get(ctx context.Context, path, need string, v any) error {
 	req, _ := http.NewRequestWithContext(ctx, "GET", c.addr+path, nil)
 	if c.token != "" {

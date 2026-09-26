@@ -17,6 +17,8 @@ package integration
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -30,6 +32,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/hiway-media/gpuledger/internal/testcerts"
 )
 
 const image = "busybox:1.36"
@@ -47,6 +51,13 @@ type agent struct {
 	// labels is false on Nomad 1.0, whose docker driver has no extra_labels: the
 	// containers then carry the alloc id only, and job, task and namespace are empty.
 	labels bool
+	client *http.Client // the harness's own; with TLS, it presents the test client certificate
+}
+
+// startOpts are what a test adds to the plain agent.
+type startOpts struct {
+	podman string         // nomad-driver-podman to load
+	tls    *testcerts.Set // serve the HTTP API over mTLS with these certificates
 }
 
 // extraLabels is true from Nomad 1.1, where the docker driver took extra_labels.
@@ -71,7 +82,7 @@ func (a *agent) do(method, path, token string, body any, out any) (int, error) {
 	if token != "" {
 		req.Header.Set("X-Nomad-Token", token)
 	}
-	res, err := http.DefaultClient.Do(req)
+	res, err := a.client.Do(req)
 	if err != nil {
 		return 0, err
 	}
@@ -117,7 +128,7 @@ func freePort(t *testing.T) int {
 
 // start runs the agent with ACLs on, the fake GPU plugin and the docker driver's
 // extra_labels set the way the README tells operators to set them.
-func start(t *testing.T, podmanDriver ...string) *agent {
+func start(t *testing.T, o startOpts) *agent {
 	nomadBin, plugin := os.Getenv("NOMAD_BIN"), os.Getenv("GPULEDGER_DEVICE_PLUGIN")
 	if nomadBin == "" || plugin == "" {
 		t.Skip("NOMAD_BIN and GPULEDGER_DEVICE_PLUGIN are required")
@@ -152,7 +163,7 @@ plugin "docker" {
 	}
 	// The podman driver, when asked for, without extra_labels: the case where the
 	// allocation is only in the container's name.
-	for _, drv := range podmanDriver {
+	if drv := o.podman; drv != "" {
 		b, err := os.ReadFile(drv)
 		if err != nil {
 			t.Fatal(err)
@@ -164,6 +175,27 @@ plugin "nomad-driver-podman" {
     socket_path = "unix:///run/podman/podman.sock"
   }
 }`
+	}
+	scheme, client := "http", http.DefaultClient
+	if o.tls != nil {
+		docker += fmt.Sprintf(`
+tls {
+  http                   = true
+  rpc                    = true
+  ca_file                = %q
+  cert_file              = %q
+  key_file               = %q
+  verify_server_hostname = true
+  verify_https_client    = true
+}`, o.tls.CA, o.tls.ServerCert, o.tls.ServerKey)
+		pool := x509.NewCertPool()
+		ca, _ := os.ReadFile(o.tls.CA)
+		pool.AppendCertsFromPEM(ca)
+		cert, err := tls.LoadX509KeyPair(o.tls.ClientCert, o.tls.ClientKey)
+		if err != nil {
+			t.Fatal(err)
+		}
+		scheme, client = "https", &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool, Certificates: []tls.Certificate{cert}}}}
 	}
 	port := freePort(t)
 	cfg := fmt.Sprintf(`
@@ -203,7 +235,7 @@ plugin "nomad-device-fake" {
 			t.Logf("agent log (tail):\n%s", b)
 		}
 	})
-	a := &agent{t: t, addr: fmt.Sprintf("http://127.0.0.1:%d", port), labels: labels}
+	a := &agent{t: t, addr: fmt.Sprintf("%s://127.0.0.1:%d", scheme, port), labels: labels, client: client}
 	var boot struct{ SecretID string }
 	eventually(t, "ACL bootstrap", 60*time.Second, func() (bool, string) {
 		_, err := a.do("POST", "/v1/acl/bootstrap", "", nil, &boot)
@@ -312,7 +344,7 @@ func sh(t *testing.T, name string, args ...string) string {
 }
 
 func TestAgainstARealNomad(t *testing.T) {
-	a := start(t)
+	a := start(t, startOpts{})
 	a.must("POST", "/v1/namespace/video", map[string]any{"Name": "video"}, nil)
 
 	// The token gpuledger gets: the least the README says it needs. Without read-job
@@ -648,7 +680,7 @@ func TestPodmanAgainstARealNomad(t *testing.T) {
 	if drv == "" {
 		t.Skip("PODMAN_DRIVER is required")
 	}
-	a := start(t, drv)
+	a := start(t, startOpts{podman: drv})
 	usable := false
 	for end := time.Now().Add(30 * time.Second); time.Now().Before(end) && !usable; time.Sleep(time.Second) {
 		var nodes []struct{ ID string }
@@ -800,5 +832,83 @@ func dashboardAgainstPrometheus(t *testing.T, promBin, listen string, labels boo
 	}
 	if _, n, _ := query(`gpuledger_findings{code="unreserved-tenant"} > 0`); n == 0 {
 		t.Error("GPULedgerUnreservedTenant's expression must match the unreserved tenant the test plants")
+	}
+}
+
+// TestMutualTLSAgainstARealNomad serves the agent's HTTP API over mTLS —
+// verify_https_client, verify_server_hostname, ACLs on — schedules a GPU job, and
+// checks gpuledger reads the reservation with the certificates and fails, saying TLS,
+// without them.
+func TestMutualTLSAgainstARealNomad(t *testing.T) {
+	dir, err := os.MkdirTemp("", "gpuledger-it-tls-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	set, err := testcerts.Write(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := start(t, startOpts{tls: &set})
+	a.must("POST", "/v1/jobs", gpuJob("enc", "default"), nil)
+	t.Cleanup(func() {
+		a.do("DELETE", "/v1/job/enc?purge=true", a.mgmt, nil, nil)
+		time.Sleep(3 * time.Second)
+	})
+	enc, gpu := a.running("enc", "default")
+
+	sd := t.TempDir()
+	var qg strings.Builder
+	for i, g := range gpus {
+		fmt.Fprintf(&qg, "%d, %s, Fake RTX, 00000000:0%d:00.0, 100, 8192, 5, 1, 40, 30.5, 0, 0\n", i, g, i+1)
+	}
+	os.WriteFile(filepath.Join(sd, "gpu.csv"), []byte(qg.String()), 0o644)
+	smi := filepath.Join(sd, "nvidia-smi")
+	os.WriteFile(smi, []byte(fmt.Sprintf("#!/bin/sh\ncase \"$1\" in --query-gpu=*) cat %q ;; *) true ;; esac\n", filepath.Join(sd, "gpu.csv"))), 0o755)
+	bin := os.Getenv("GPULEDGER_BIN")
+	if bin == "" {
+		bin = filepath.Join(sd, "gpuledger")
+		sh(t, "go", "build", "-o", bin, "../cmd/gpuledger")
+	}
+	policy, _ := os.ReadFile("../deploy/nomad/gpuledger.policy.hcl")
+	tok := a.token("gpuledger", string(policy))
+	gl := func(env ...string) []byte {
+		cmd := exec.Command(bin, "ls", "--json", "--no-docker", "--nvidia-smi", smi, "--nomad-addr", a.addr, "--nomad-token-env", "GL_IT_TOKEN", "--node", "it")
+		cmd.Env = append(append(os.Environ(), "GL_IT_TOKEN="+tok), env...)
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("%v %s", err, out)
+		}
+		return out
+	}
+	// The certificates through the Nomad CLI's variables, as an operator's shell has them.
+	out := gl("NOMAD_CACERT="+set.CA, "NOMAD_CLIENT_CERT="+set.ClientCert, "NOMAD_CLIENT_KEY="+set.ClientKey)
+	var l struct {
+		NomadRead bool
+		Errors    []string
+		Entries   []struct {
+			UUID         string
+			Reservations []struct{ AllocID string }
+		}
+	}
+	if err := json.Unmarshal(out, &l); err != nil || !l.NomadRead || len(l.Errors) != 0 {
+		t.Fatalf("over mTLS: %v %s", err, out)
+	}
+	found := false
+	for _, e := range l.Entries {
+		if e.UUID == gpu && len(e.Reservations) == 1 && e.Reservations[0].AllocID == enc.ID {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("the reservation read over mTLS:\n%s", out)
+	}
+	out = gl("NOMAD_CACERT=" + set.CA)
+	if !bytes.Contains(out, []byte(`"errors":["nomad: `)) || !(bytes.Contains(out, []byte("tls")) || bytes.Contains(out, []byte("certificate"))) {
+		t.Errorf("without a client certificate the agent refuses, and the error says so:\n%s", out)
+	}
+	out = gl("NOMAD_CLIENT_CERT="+set.ClientCert, "NOMAD_CLIENT_KEY="+set.ClientKey)
+	if !bytes.Contains(out, []byte("certificate")) {
+		t.Errorf("not trusting the agent's CA:\n%s", out)
 	}
 }

@@ -5,6 +5,13 @@ versions follow [SemVer](https://semver.org/). Items reference their `GL-n` back
 
 ## [Unreleased]
 
+### Added
+- Nomad over mutual TLS: `--nomad-ca-cert`, `--nomad-ca-path`, `--nomad-client-cert`,
+  `--nomad-client-key`, `--nomad-tls-server-name`, defaulting to the Nomad CLI's
+  `NOMAD_CACERT`, `NOMAD_CAPATH`, `NOMAD_CLIENT_CERT`, `NOMAD_CLIENT_KEY`,
+  `NOMAD_TLS_SERVER_NAME`. The Nomad matrix runs an agent with `verify_https_client` on
+  every version (GL-24).
+
 ## [0.2.0] — 2026-09-25
 
 The whole cluster, and watched: `fleet` across nodes, since-when per GPU, per-card
