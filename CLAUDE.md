@@ -50,10 +50,12 @@ deploy/nomad/                the system job spec (raw_exec, artifact from the re
 scripts/check-repo.sh        the repo's invariants (VERSION ↔ CHANGELOG, README statements, job spec); CI runs it
 scripts/backlog.mjs          lint · roadmap · check · issues — Node, tooling only (package.json is private)
 site/build.mjs               generates site/dist/index.html FROM README.md
-.github/workflows/           ci.yml (gofmt, vet, test, static builds, check-repo, backlog), nomad.yml (the
+.github/workflows/           release-dryrun.yml (on changes to release.yml: build, attest, verify, reject a
+                             tampered binary), ci.yml (gofmt, vet, test, static builds, check-repo, backlog), nomad.yml (the
                              integration test on every stable Nomad minor since 1.0 + 1.7.3; weekly), release.yml (tag v*:
                              binaries + checksums + GitHub release + milestone), release-drift.yml (VERSION with
-                             no tag for 2 h), pages.yml, backlog-issues.yml
+                             no tag for 2 h), pages.yml, backlog-issues.yml. release.yml attests every
+                             binary and the checksums file and verifies them before publishing
 VERSION                      the one version; CHANGELOG.md must have its section; the tag is v<VERSION>
 BACKLOG.md / ROADMAP.md      single source of truth (GL-n ids) / generated view
 ```

@@ -2,13 +2,20 @@
 # port 9877 and registering in Consul for Prometheus to scrape. It reads nvidia-smi,
 # the Docker socket (read-only) and the local Nomad agent; it writes nothing.
 #
-#   nomad job run deploy/nomad/gpuledger.nomad.hcl
 #
-# Pin the version and the checksum to a release before running this in production.
+#   nomad job run -var version=V -var checksum=sha256:… deploy/nomad/gpuledger.nomad.hcl
+#
+# The checksum is required: the artifact is verified before it runs.
 
 variable "version" {
   type    = string
   default = "0.2.0"
+}
+
+# Required, no default: "sha256:<hex>" of gpuledger-v<version>-linux-amd64, from the
+# release's gpuledger-v<version>-checksums.txt (README: Install).
+variable "checksum" {
+  type = string
 }
 
 # "*" means every datacenter from Nomad 1.5; before 1.5 it is a literal name that
@@ -68,7 +75,10 @@ job "gpuledger" {
         source      = "https://github.com/hiway-media/gpuledger/releases/download/v${var.version}/gpuledger-v${var.version}-linux-amd64"
         destination = "local/gpuledger"
         mode        = "file"
-        # options { checksum = "sha256:…" }  ← from the release's checksums file
+        # Nomad refuses a download that does not match: no unverified binary runs.
+        options {
+          checksum = var.checksum
+        }
       }
 
       config {

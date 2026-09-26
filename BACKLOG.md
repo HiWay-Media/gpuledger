@@ -158,7 +158,7 @@ matrix, on every version that has the feature.
 - [x] **GL-27 — Consul over TLS**: `fleet --consul https://…` with `CONSUL_CACERT`,
   `CONSUL_CLIENT_CERT`, `CONSUL_CLIENT_KEY`, as Consul's CLI reads them; the Consul dev
   agent in the matrix started with TLS. <!-- gl: prio=low size=S labels=enhancement,tests ver=main -->
-- [ ] **GL-28 — Verifiable releases**: build provenance attestations on every release
+- [x] **GL-28 — Verifiable releases**: build provenance attestations on every release
   binary (`gh attestation verify`), the checksum pinned in the system job's `artifact`
   from the release's checksums file, and the README's install steps verifying both.
-  <!-- gl: prio=med size=S labels=release,docs -->
+  <!-- gl: prio=med size=S labels=release,docs ver=main -->

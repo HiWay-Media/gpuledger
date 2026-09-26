@@ -6,6 +6,15 @@ versions follow [SemVer](https://semver.org/). Items reference their `GL-n` back
 ## [Unreleased]
 
 ### Added
+- Verifiable releases: build provenance attestations on every binary and the checksums
+  file, verified by the release workflow before it publishes; `gh attestation verify` in
+  the README's install steps; a dry run of those steps, with a tampered binary that must
+  fail, on every change to the release workflow (GL-28).
+
+### Changed
+- The system job requires `-var checksum=sha256:…` and passes it to the artifact, so
+  Nomad refuses a binary that does not match the release's checksums file. The Nomad
+  matrix checks the job validates with it and is refused without it (GL-28).
 - Consul over TLS for `fleet`: `--consul-ca-cert`, `--consul-ca-path`,
   `--consul-client-cert`, `--consul-client-key`, `--consul-tls-server-name`, defaulting
   to the Consul CLI's variables, and `CONSUL_HTTP_SSL` for a bare address. The matrix
