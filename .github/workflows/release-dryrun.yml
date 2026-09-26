@@ -42,6 +42,7 @@ jobs:
           set -eu
           for f in dist/*; do
             gh attestation verify "$f" --repo "$GITHUB_REPOSITORY" --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release-dryrun.yml"
+            echo "verified: $f ($(sha256sum "$f" | cut -c1-12))"
           done
           # A binary changed after the build must not verify.
           cp dist/*-linux-amd64 /tmp/tampered && printf x >> /tmp/tampered
