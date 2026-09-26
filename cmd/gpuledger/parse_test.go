@@ -131,3 +131,13 @@ func TestNomadTLSFlagsDefaultToTheCLIsVariables(t *testing.T) {
 		t.Fatalf("a flag wins over its variable: %+v", o.nomadTLS)
 	}
 }
+
+func TestConsulTLSFlagsDefaultToTheCLIsVariables(t *testing.T) {
+	t.Setenv("CONSUL_CACERT", "/etc/consul.d/ca.pem")
+	t.Setenv("CONSUL_CLIENT_CERT", "/etc/consul.d/cli.pem")
+	t.Setenv("CONSUL_CLIENT_KEY", "/etc/consul.d/cli-key.pem")
+	_, o, err := parse([]string{"fleet", "--consul", "consul:8501", "--consul-tls-server-name", "server.dc1.consul"})
+	if err != nil || o.consulTLS.CACert != "/etc/consul.d/ca.pem" || o.consulTLS.ClientKey != "/etc/consul.d/cli-key.pem" || o.consulTLS.ServerName != "server.dc1.consul" {
+		t.Fatalf("%v %+v", err, o.consulTLS)
+	}
+}

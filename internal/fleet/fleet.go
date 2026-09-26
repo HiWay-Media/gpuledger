@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -22,6 +23,7 @@ import (
 	"github.com/hiway-media/gpuledger/internal/findings"
 	"github.com/hiway-media/gpuledger/internal/ledger"
 	"github.com/hiway-media/gpuledger/internal/nomad"
+	"github.com/hiway-media/gpuledger/internal/tlsfiles"
 )
 
 // Target is one gpuledger serve endpoint. Node is the name to report it under until
@@ -65,17 +67,37 @@ type Consul struct {
 // NewConsul takes CONSUL_HTTP_ADDR's forms (with or without a scheme) and reads the ACL
 // token from the environment variable named by tokenEnv, never from a flag value.
 func NewConsul(addr, tokenEnv string) *Consul {
+	c, _ := NewConsulTLS(addr, tokenEnv, tlsfiles.Files{})
+	return c
+}
+
+// NewConsulTLS is NewConsul for Consul's HTTPS API. A bare address is https when
+// CONSUL_HTTP_SSL is true, as the Consul CLI reads it; the certificates are paths, and
+// an error means they could not be read.
+func NewConsulTLS(addr, tokenEnv string, files tlsfiles.Files) (*Consul, error) {
 	if addr == "" {
 		addr = "127.0.0.1:8500"
 	}
 	if !strings.Contains(addr, "://") {
-		addr = "http://" + addr
+		scheme := "http://"
+		if ssl, _ := strconv.ParseBool(os.Getenv("CONSUL_HTTP_SSL")); ssl {
+			scheme = "https://"
+		}
+		addr = scheme + addr
 	}
 	tok := ""
 	if tokenEnv != "" {
 		tok = os.Getenv(tokenEnv)
 	}
-	return &Consul{http: &http.Client{Timeout: 5 * time.Second}, addr: strings.TrimRight(addr, "/"), token: tok}
+	c := &Consul{http: &http.Client{Timeout: 5 * time.Second}, addr: strings.TrimRight(addr, "/"), token: tok}
+	cfg, err := files.Config("consul")
+	if err != nil {
+		return c, err
+	}
+	if cfg != nil {
+		c.http.Transport = &http.Transport{TLSClientConfig: cfg, Proxy: http.ProxyFromEnvironment}
+	}
+	return c, nil
 }
 
 // Targets asks /v1/health/service/<service>?passing=true; the service address wins

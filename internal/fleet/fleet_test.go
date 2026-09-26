@@ -2,9 +2,12 @@ package fleet
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +16,8 @@ import (
 	"github.com/hiway-media/gpuledger/internal/ledger"
 	"github.com/hiway-media/gpuledger/internal/nomad"
 	"github.com/hiway-media/gpuledger/internal/nvidia"
+	"github.com/hiway-media/gpuledger/internal/testcerts"
+	"github.com/hiway-media/gpuledger/internal/tlsfiles"
 )
 
 func gpu(i int, uuid string, used, total int) nvidia.GPU {
@@ -199,5 +204,45 @@ func TestTargetsFromNomadServices(t *testing.T) {
 	ts := FromNomad([]nomad.Service{{NodeID: "n2", Address: "10.0.0.5", Port: 9877}, {NodeID: "n1", Address: "fd00::4", Port: 9877}})
 	if len(ts) != 2 || ts[0] != (Target{Node: "10.0.0.5", URL: "http://10.0.0.5:9877"}) || ts[1] != (Target{Node: "fd00::4", URL: "http://[fd00::4]:9877"}) {
 		t.Fatalf("%+v", ts)
+	}
+}
+
+// Consul's HTTPS API with verify_incoming: the CA and a client certificate by path, as
+// CONSUL_CACERT and friends name them; CONSUL_HTTP_SSL makes a bare address https.
+func TestConsulOverMutualTLS(t *testing.T) {
+	set, err := testcerts.Write(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool := x509.NewCertPool()
+	ca, _ := os.ReadFile(set.CA)
+	pool.AppendCertsFromPEM(ca)
+	cert, _ := tls.LoadX509KeyPair(set.ServerCert, set.ServerKey)
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Write([]byte(`[{"Node":{"Node":"gpud","Address":"10.0.0.4"},"Service":{"Port":9877}}]`))
+	}))
+	srv.TLS = &tls.Config{Certificates: []tls.Certificate{cert}, ClientCAs: pool, ClientAuth: tls.RequireAndVerifyClientCert}
+	srv.StartTLS()
+	defer srv.Close()
+	ctx := context.Background()
+	files := tlsfiles.Files{CACert: set.CA, ClientCert: set.ClientCert, ClientKey: set.ClientKey}
+	c, err := NewConsulTLS(srv.URL, "", files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ts, err := c.Targets(ctx, "gpuledger"); err != nil || len(ts) != 1 || ts[0].Node != "gpud" {
+		t.Fatalf("%v %+v", err, ts)
+	}
+	t.Setenv("CONSUL_HTTP_SSL", "true")
+	c, _ = NewConsulTLS(strings.TrimPrefix(srv.URL, "https://"), "", files)
+	if ts, err := c.Targets(ctx, "gpuledger"); err != nil || len(ts) != 1 {
+		t.Fatalf("a bare address with CONSUL_HTTP_SSL: %v %+v", err, ts)
+	}
+	c, _ = NewConsulTLS(srv.URL, "", tlsfiles.Files{CACert: set.CA})
+	if _, err := c.Targets(ctx, "gpuledger"); err == nil || !strings.Contains(err.Error(), "tls") {
+		t.Fatalf("no client certificate: %v", err)
+	}
+	if _, err := NewConsulTLS(srv.URL, "", tlsfiles.Files{ClientCert: set.ClientCert}); err == nil || !strings.Contains(err.Error(), "--consul-client-key") {
+		t.Fatalf("half a key pair names the consul flag: %v", err)
 	}
 }
