@@ -525,11 +525,23 @@ node { policy = "read" }`)
 		t.Errorf("no token on an ACL cluster:\n%s", out)
 	}
 
-	// The system job the README tells operators to run is valid on this version.
-	validate := exec.Command(os.Getenv("NOMAD_BIN"), "job", "validate", "-var", `datacenters=["dc1"]`, "../deploy/nomad/gpuledger.nomad.hcl")
-	validate.Env = append(os.Environ(), "NOMAD_ADDR="+a.addr, "NOMAD_TOKEN="+a.mgmt)
-	if out, err := validate.CombinedOutput(); err != nil {
+	// The system job the README tells operators to run is valid on this version — with
+	// the binary's checksum, which it requires: without one Nomad must refuse it, so no
+	// unverified binary is ever run.
+	validate := func(vars ...string) ([]byte, error) {
+		args := []string{"job", "validate", "-var", `datacenters=["dc1"]`}
+		for _, v := range vars {
+			args = append(args, "-var", v)
+		}
+		cmd := exec.Command(os.Getenv("NOMAD_BIN"), append(args, "../deploy/nomad/gpuledger.nomad.hcl")...)
+		cmd.Env = append(os.Environ(), "NOMAD_ADDR="+a.addr, "NOMAD_TOKEN="+a.mgmt)
+		return cmd.CombinedOutput()
+	}
+	if out, err := validate("checksum=sha256:" + strings.Repeat("0", 64)); err != nil {
 		t.Errorf("nomad job validate deploy/nomad/gpuledger.nomad.hcl: %v\n%s", err, out)
+	}
+	if out, err := validate(); err == nil {
+		t.Errorf("the system job must require -var checksum=…:\n%s", out)
 	}
 
 	if promtool := os.Getenv("PROMTOOL"); promtool != "" {

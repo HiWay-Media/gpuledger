@@ -82,7 +82,9 @@ gpuledger check --exit-on bad --allow-unmanaged
 socket, which a container would have to be handed anyway.
 
 ```
-nomad job run -var version=0.2.0 deploy/nomad/gpuledger.nomad.hcl
+nomad job run -var version=0.2.0 \
+  -var checksum=sha256:92b04b4f8f919fe7cddfbdc1ca5ea829e9f03bfd8c2d52d34f95dfcbabe9b56d \
+  deploy/nomad/gpuledger.nomad.hcl
 curl -s http://<node>:9877/metrics | grep gpuledger_gpu_tenants
 ```
 
@@ -289,7 +291,23 @@ all without `extra_labels`, the name `<task>-<alloc id>`, the cgroup
 ## Install
 
 Static binaries for linux/amd64 and linux/arm64 on the
-[releases page](https://github.com/hiway-media/gpuledger/releases), with checksums.
+[releases page](https://github.com/hiway-media/gpuledger/releases), with a checksums
+file and — from the release after 0.2.0 — build provenance you can verify: that the
+binary was built by this repository's release workflow from the tagged commit.
+
+```
+V=0.3.0
+gh release download v$V --repo HiWay-Media/gpuledger
+sha256sum -c gpuledger-v$V-checksums.txt
+gh attestation verify gpuledger-v$V-linux-amd64 --repo HiWay-Media/gpuledger \
+  --signer-workflow HiWay-Media/gpuledger/.github/workflows/release.yml
+```
+
+The release workflow runs that same verification before it publishes, and a dry run
+of it — build, attest, verify, and a tampered binary that must not verify — runs on
+every change to the workflow. The system job takes the checksum as a required
+variable, so Nomad refuses a download that does not match:
+`-var checksum=sha256:$(grep linux-amd64 gpuledger-v$V-checksums.txt | cut -d' ' -f1)`.
 From source: `go install github.com/hiway-media/gpuledger/cmd/gpuledger@latest` (Go 1.27).
 Requires `nvidia-smi` on the node and, for tenant resolution, read access to the Docker
 socket and `/proc`.

@@ -13,5 +13,7 @@ grep -qi "never prints\|never shows\|never carries" README.md || fail "README.md
 grep -q "NOMAD_TOKEN" README.md || fail "README.md must say the token comes from an environment variable"
 grep -q "gpuledger" deploy/nomad/gpuledger.nomad.hcl || fail "the Nomad job spec must run gpuledger"
 grep -q 'type *= *"system"' deploy/nomad/gpuledger.nomad.hcl || fail "the Nomad job must be a system job"
+grep -q 'checksum *= *var.checksum' deploy/nomad/gpuledger.nomad.hcl || fail "the Nomad job must verify the artifact's checksum"
+grep -q 'attest-build-provenance' .github/workflows/release.yml || fail "the release must attest its binaries"
 [ -x testdata/fake-nvidia-smi.sh ] || fail "testdata/fake-nvidia-smi.sh must be executable"
 echo "ok — repo invariants hold at $V"

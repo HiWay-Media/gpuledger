@@ -1,7 +1,8 @@
 name: Release
 
 # On a tag v<version> matching VERSION: build static binaries for linux/amd64 and
-# linux/arm64, attach them with checksums to a GitHub release, close the milestone.
+# linux/arm64, attest their build provenance and verify it, attach them with checksums
+# to a GitHub release, close the milestone.
 # Re-run with `gh workflow run Release -f tag=v0.1.0`; every step is idempotent.
 
 on:
@@ -16,6 +17,8 @@ on:
 permissions:
   contents: write
   issues: write
+  id-token: write     # build provenance: the workflow's OIDC identity signs the attestation
+  attestations: write
 
 concurrency:
   group: release-${{ inputs.tag || github.ref_name }}
@@ -56,6 +59,20 @@ jobs:
             CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath -ldflags "-s -w -X github.com/hiway-media/gpuledger/internal/version.Version=v$V" -o "dist/gpuledger-v$V-linux-$arch" ./cmd/gpuledger
           done
           (cd dist && sha256sum * > "gpuledger-v$V-checksums.txt" && cat "gpuledger-v$V-checksums.txt")
+      # Provenance for every binary and the checksums file, then verified before anything
+      # is published: a release whose attestation does not check out never goes out.
+      - uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: dist/*
+      - name: Verify the attestations
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          for f in dist/*; do
+            gh attestation verify "$f" --repo "$GITHUB_REPOSITORY" --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml"
+            echo "verified: $f ($(sha256sum "$f" | cut -c1-12))"
+          done
       - name: Create or update the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}

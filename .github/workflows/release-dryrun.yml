@@ -1,0 +1,49 @@
+name: Release dry run
+
+# The release's provenance steps on a development build, whenever release.yml changes:
+# build, attest, verify with the same command the README gives — so a broken step shows
+# on the pull request, not on the next tag. Nothing is published; the attestations it
+# makes are true (built by this workflow at this commit) and name this workflow.
+
+on:
+  pull_request:
+    paths: ['.github/workflows/release.yml', '.github/workflows/release-dryrun.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+
+jobs:
+  dryrun:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: Build as the release does
+        run: |
+          set -eu
+          V="$(tr -d ' \n' < VERSION)-dryrun"
+          mkdir -p dist
+          for arch in amd64 arm64; do
+            CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath -ldflags "-s -w -X github.com/hiway-media/gpuledger/internal/version.Version=v$V" -o "dist/gpuledger-v$V-linux-$arch" ./cmd/gpuledger
+          done
+          (cd dist && sha256sum * > "gpuledger-v$V-checksums.txt")
+      - uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: dist/*
+      - name: Verify, as the README tells users to
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          for f in dist/*; do
+            gh attestation verify "$f" --repo "$GITHUB_REPOSITORY" --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release-dryrun.yml"
+            echo "verified: $f ($(sha256sum "$f" | cut -c1-12))"
+          done
+          # A binary changed after the build must not verify.
+          cp dist/*-linux-amd64 /tmp/tampered && printf x >> /tmp/tampered
+          if gh attestation verify /tmp/tampered --repo "$GITHUB_REPOSITORY"; then echo "a tampered binary verified"; exit 1; fi
