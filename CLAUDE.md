@@ -45,7 +45,8 @@ integration/                 build tag `integration`: gpuledger against a real `
 deploy/prometheus/           alert rules on gpuledger_findings and the state gauges; promtool unit tests beside them
 deploy/grafana/              the dashboard; internal/metrics/contract_test.go checks every metric and label
                              the rules and the dashboard name against what Render exposes
-deploy/nomad/                the system job spec (raw_exec, artifact from the release) and the ACL
+deploy/nomad/                the system job specs — gpuledger.nomad.hcl (token, any version) and
+                             gpuledger.wi.nomad.hcl (workload identity, 1.5+) — (raw_exec, artifact from the release) and the ACL
                              policy file the integration test gives gpuledger's token
 scripts/check-repo.sh        the repo's invariants (VERSION ↔ CHANGELOG, README statements, job spec); CI runs it
 scripts/backlog.mjs          lint · roadmap · check · issues — Node, tooling only (package.json is private)
@@ -110,6 +111,11 @@ BACKLOG.md / ROADMAP.md      single source of truth (GL-n ids) / generated view
   cert_file, key_file, verify_server_hostname, verify_https_client }` on a -dev agent
   with one certificate naming `server.global.nomad`, `client.global.nomad`, `localhost`
   and 127.0.0.1; a client without a certificate is refused at the handshake.
+- **Workload identity** (same runs): job-bound policies (`JobACL`) from 1.4; the task gets
+  `NOMAD_TOKEN` (a JWT) from `identity { env = true }` from 1.5; that token reads
+  `/v1/nodes` and `/v1/node/<id>/allocations` with the policy file bound to the job, but
+  `/v1/agent/self` answers 500 ("UUID must be 36 characters") on 1.5 – 1.10 and 200
+  from 1.11. Hence `--nomad-node-id`, which both job specs pass.
 - **Nomad ACLs** (same runs): `/v1/agent/self` needs `agent:read`, `/v1/node/<id>/allocations`
   needs `node:read` and returns only the allocations in namespaces where the token has
   `read-job`, with no error. `deploy/nomad/gpuledger.policy.hcl` is the tested minimum.

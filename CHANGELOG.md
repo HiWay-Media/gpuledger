@@ -6,6 +6,12 @@ versions follow [SemVer](https://semver.org/). Items reference their `GL-n` back
 ## [Unreleased]
 
 ### Added
+- `--nomad-node-id`: the node's Nomad id given, `/v1/agent/self` is not called. Both
+  job specs pass `${node.unique.id}` (GL-25).
+- `deploy/nomad/gpuledger.wi.nomad.hcl`: the system job with no static token, Nomad
+  1.5+ — `identity { env = true }` and the policy file bound to the job. The Nomad
+  matrix runs gpuledger with a task's workload identity on every version from 1.5, and
+  observed that `/v1/agent/self` refuses one before 1.11 (GL-25).
 - Verifiable releases: build provenance attestations on every binary and the checksums
   file, verified by the release workflow before it publishes; `gh attestation verify` in
   the README's install steps; a dry run of those steps, with a tampered binary that must

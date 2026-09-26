@@ -181,6 +181,19 @@ one is easy to miss: without it Nomad answers the node's allocations **without**
 namespace's, and no error — gpuledger reports `source-unavailable` for each Nomad
 container whose allocation it cannot see rather than calling it unreserved.
 
+**Without a static token**, on Nomad 1.5+: the task's workload identity is its token.
+Bind the same policy to the job and run the workload identity variant of the job:
+
+```
+nomad acl policy apply -namespace default -job gpuledger gpuledger-job deploy/nomad/gpuledger.policy.hcl
+nomad job run -var version=V -var checksum=sha256:… deploy/nomad/gpuledger.wi.nomad.hcl
+```
+
+It passes `--nomad-node-id ${node.unique.id}` — both job specs do — because before Nomad
+1.11 the local agent's `/v1/agent/self` refuses a workload identity (HTTP 500); with the
+node id given, that call is not made. Nomad 1.4 has job-bound policies but gives the task
+no token; before 1.4 neither exists, and the static token is the way.
+
 **Over mutual TLS**, an agent with `tls { http = true }` and `verify_https_client`:
 `--nomad-addr https://127.0.0.1:4646` and the certificates by path — `--nomad-ca-cert`
 (or `--nomad-ca-path`), `--nomad-client-cert`, `--nomad-client-key`,
@@ -263,7 +276,7 @@ comes out `held` from the container's name alone.
 |---|---|---|
 | 1.0 | ✓ | no `extra_labels` in the docker driver: tenants carry the allocation id only |
 | 1.1 – 1.4 | ✓ | |
-| 1.5 – 2.0 | ✓ | `datacenters = ["*"]` in the system job works from 1.5; before, pass `-var 'datacenters=[…]'` |
+| 1.5 – 2.0 | ✓ | `datacenters = ["*"]` in the system job works from 1.5; before, pass `-var 'datacenters=[…]'`. Workload identity instead of a token: 1.5+ (`gpuledger.wi.nomad.hcl`) |
 | 1.7.3 | ✓ | pinned: the version the HiWay farm runs |
 
 What the matrix established, on every version: the docker driver labels containers
