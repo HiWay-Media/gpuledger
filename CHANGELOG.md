@@ -5,11 +5,20 @@ versions follow [SemVer](https://semver.org/). Items reference their `GL-n` back
 
 ## [Unreleased]
 
-### Fixed
-- On a cluster without Consul, from Nomad 1.3, the system job was never placed: a Consul
-  `service` block adds the constraint `${attr.consul.version} >= 1.8.0`. All three job
-  specs take `-var consul=false`, which leaves the registration out. Found by running
-  the fleet job in the Nomad matrix.
+## [0.5.0] — 2026-09-28
+
+A page to look at: `serve` shows its node at `/`, `fleet serve` shows the cluster from
+one process, both server-rendered, refreshing without script, behind GET-only
+endpoints and a strict Content-Security-Policy; the fleet view as a Nomad job, run for
+real in the matrix — which found that a Consul service keeps a job off a node without
+Consul from Nomad 1.3. The driver side, as before, only against a fake nvidia-smi
+(GL-10, v0.6.0).
+
+**Upgrading from 0.4.0**
+- Every HTTP endpoint answers GET and HEAD only; anything else is now a 405.
+- The job specs take `-var consul=false` for a cluster without Consul (default on:
+  nothing changes where Consul runs).
+- `fleet serve` and `deploy/nomad/gpuledger-fleet.nomad.hcl` are new; they listen on 9878.
 
 ### Added
 - `gpuledger fleet serve`: polls the fleet every `--interval` and serves its page (each
@@ -28,6 +37,10 @@ versions follow [SemVer](https://semver.org/). Items reference their `GL-n` back
   context, tested with a container named like a script (GL-36).
 
 ### Fixed
+- On a cluster without Consul, from Nomad 1.3, the system job was never placed: a Consul
+  `service` block adds the constraint `${attr.consul.version} >= 1.8.0`. All three job
+  specs take `-var consul=false`, which leaves the registration out. Found by running
+  the fleet job in the Nomad matrix.
 - The site's navbar wrapped onto a second line and out of the header once the README
   grew to seven sections. It is one line now whatever the README grows to: the sections
   scroll sideways when they do not fit, with a fade only on the side that hides some,
