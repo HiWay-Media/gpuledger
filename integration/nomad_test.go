@@ -855,6 +855,10 @@ func dashboardAgainstPrometheus(t *testing.T, bin, promBin, listen string, label
 		_, c, _ := query(`gpuledger_job_gpu_seconds_total{nomad_job="enc",use="idle"} > 0`)
 		return a == 1 && b == 1 && c == 0, fmt.Sprint(a, b, c)
 	})
+	for _, q := range []string{"sum by (namespace, nomad_job, use) (increase(gpuledger_job_gpu_seconds_total[10m]))", "sum by (node, state) (increase(gpuledger_gpu_state_seconds_total[10m]))", "gpuledger_job_gpu_seconds_total"} {
+		st, n, err := query(q)
+		t.Logf("diag %s: %s %d %v", q, st, n, err)
+	}
 	// gpuledger report reads the same counters back: enc wasted nothing, idle all of it.
 	out, err := exec.Command(bin, "report", "--json", "--since", "10m", "--prometheus", fmt.Sprintf("http://127.0.0.1:%d", port)).Output()
 	if err != nil {
