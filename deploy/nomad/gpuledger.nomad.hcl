@@ -9,7 +9,7 @@
 
 variable "version" {
   type    = string
-  default = "0.4.0"
+  default = "0.5.0"
 }
 
 # Required, no default: "sha256:<hex>" of gpuledger-v<version>-linux-amd64, from the
