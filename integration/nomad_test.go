@@ -1310,11 +1310,49 @@ func fleetJob(t *testing.T, a *agent, bin, listen string) {
 	eventually(t, "the fleet view run by Nomad", 90*time.Second, func() (bool, string) {
 		res, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/fleet", port))
 		if err != nil {
-			return false, err.Error()
+			return false, err.Error() + " — " + jobEvents(a, "gpuledger-fleet")
 		}
 		defer res.Body.Close()
 		body, _ = io.ReadAll(res.Body)
 		return res.StatusCode == 200 && bytes.Contains(body, []byte(`"node":"it"`)) && bytes.Contains(body, []byte(`"gpus":3`)), string(body)
 	})
 	t.Logf("fleet job: %s", bytes.TrimSpace(body)[:120])
+}
+
+// jobEvents is what Nomad says about a job's allocations: status and the last task
+// events, for a failure message that explains itself.
+func jobEvents(a *agent, job string) string {
+	var allocs []struct {
+		ID, ClientStatus, ClientDescription string
+		TaskStates                          map[string]struct {
+			State  string
+			Events []struct{ Type, DisplayMessage string }
+		}
+	}
+	a.do("GET", "/v1/job/"+job+"/allocations", a.mgmt, nil, &allocs)
+	var eval []struct {
+		Status, StatusDescription string
+		FailedTGAllocs            map[string]any
+	}
+	a.do("GET", "/v1/job/"+job+"/evaluations", a.mgmt, nil, &eval)
+	out := fmt.Sprintf("%d alloc(s)", len(allocs))
+	for _, e := range eval {
+		if len(e.FailedTGAllocs) > 0 {
+			b, _ := json.Marshal(e.FailedTGAllocs)
+			out += fmt.Sprintf("; placement failed: %s", b)
+		}
+	}
+	for _, al := range allocs {
+		out += fmt.Sprintf("; %s %s", al.ClientStatus, al.ClientDescription)
+		for task, ts := range al.TaskStates {
+			n := len(ts.Events)
+			if n > 4 {
+				ts.Events = ts.Events[n-4:]
+			}
+			for _, ev := range ts.Events {
+				out += fmt.Sprintf("; %s: %s %s", task, ev.Type, ev.DisplayMessage)
+			}
+		}
+	}
+	return out
 }
