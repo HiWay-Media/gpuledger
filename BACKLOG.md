@@ -213,3 +213,29 @@ QRSPI run settles with those answers in hand.
   info` as a read-only runner (the nvidia-smi pattern) or a dependency with its reason in
   `CLAUDE.md`. Needs the driver's labels and cgroup layout observed first, as GL-16 did
   for Podman. <!-- gl: prio=low size=M labels=collector -->
+
+## v0.7.0 — Ready for the farm <!-- ms: phase=next -->
+
+What stands between tested in CI and running on the farm's nodes: a command that says
+what a node is missing before gpuledger is trusted there, the arm64 binary tested and
+not only built, a fleet that spans federated regions, and the findings where the team
+already looks — checkfleet.
+
+- [ ] **GL-37 — `gpuledger doctor`**: on a node, check each source and say what is
+  missing, worst first, in the findings' contract: nvidia-smi present and which optional
+  fields the driver answers, the Docker or Podman socket readable, the Nomad agent a
+  client, what the token can do (`agent:read`, `node:read`, `read-job` per namespace),
+  the docker driver's `extra_labels`, the history file writable. The first thing to run
+  on `gpud` for GL-10. <!-- gl: prio=high size=M labels=enhancement,tests -->
+- [ ] **GL-38 — arm64 in the Nomad matrix**: the release ships linux/arm64 and nothing
+  runs it; run the integration test on GitHub's arm64 runners too, with Nomad's arm64
+  build, on the versions that publish one. <!-- gl: prio=med size=S labels=tests,release -->
+- [ ] **GL-39 — Fleet across regions**: `fleet --nomad-regions all` (or a list) reads
+  `/v1/regions` and each region's service registrations, for federated clusters; the
+  region in the table and the JSON. Tested with two federated dev agents in the matrix.
+  <!-- gl: prio=low size=M labels=enhancement,tests -->
+- [ ] **GL-40 — A gpuledger module in checkfleet**: checkfleet (the same verdict
+  contract: worst first, exit 0, `--exit-on`) gets a module that reads a node's
+  `/findings` or `fleet serve`'s `/fleet` and maps the levels one to one. The module
+  lives in the checkfleet repository; this item holds gpuledger's side — the golden
+  `/findings` it reads, and the README's pointer. <!-- gl: prio=med size=S labels=docs,project -->

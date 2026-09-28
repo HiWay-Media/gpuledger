@@ -4,7 +4,7 @@
 
 > This page is **generated** from [BACKLOG.md](BACKLOG.md), the single source of truth for planned work. Regenerate it with `node scripts/backlog.mjs roadmap` after editing the backlog — CI fails when the two disagree.
 
-**36 items · 32 shipped · 4 open · 6 milestones.**
+**40 items · 32 shipped · 8 open · 7 milestones.**
 
 ## At a glance
 
@@ -16,6 +16,7 @@
 | **v0.4.0 — What the GPUs cost** | shipped | `##########` 100% | 0 | 4 |
 | **v0.5.0 — A page to look at** | shipped | `##########` 100% | 0 | 4 |
 | **v0.6.0 — Told by the hardware** | now | `..........` 0% | 4 | 0 |
+| **v0.7.0 — Ready for the farm** | next | `..........` 0% | 4 | 0 |
 
 ## v0.1.0 — One node, told the truth
 
@@ -70,3 +71,10 @@
 - [ ] **GL-11** — Encoder-only sessions · med · M · collector
 - [ ] **GL-1** — Run QRSPI on the brief: Questions → Research → Spec → Plan · high · L · ledger
 - [ ] **GL-23** — containerd · low · M · collector
+
+## v0.7.0 — Ready for the farm
+
+- [ ] **GL-37** — `gpuledger doctor` · high · M · enhancement, tests
+- [ ] **GL-38** — arm64 in the Nomad matrix · med · S · tests, release
+- [ ] **GL-39** — Fleet across regions · low · M · enhancement, tests
+- [ ] **GL-40** — A gpuledger module in checkfleet · med · S · docs, project
