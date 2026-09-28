@@ -177,6 +177,19 @@ between two refreshes belongs to what was seen at its start; a silence over thre
 intervals, or a refresh where a source failed, is nobody's time. With `--history` the
 counters survive a restart.
 
+`gpuledger report` reads those counters back from Prometheus for a window and says it
+in a table — per job, GPU-hours reserved, held and idle and the idle share, the most
+idle first; per node, the hours in each state:
+
+```
+gpuledger report --prometheus http://prometheus:9090 --since 7d
+gpuledger report --prometheus https://prom.example --prometheus-token-env PROM_TOKEN --json
+```
+
+`--prometheus` defaults to `$PROMETHEUS_URL`; a bearer token, if the server wants one,
+comes from the variable named by `--prometheus-token-env`. `--json` is under the JSON
+contract.
+
 **Alerts and a dashboard**, for Prometheus and Grafana:
 [`deploy/prometheus/gpuledger.rules.yml`](deploy/prometheus/gpuledger.rules.yml) —
 source down, an unreserved or unmanaged tenant, a card hot or thermally slowing down,

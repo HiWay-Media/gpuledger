@@ -9,6 +9,7 @@ import (
 	"github.com/hiway-media/gpuledger/internal/fleet"
 	"github.com/hiway-media/gpuledger/internal/ledger"
 	"github.com/hiway-media/gpuledger/internal/nvidia"
+	"github.com/hiway-media/gpuledger/internal/report"
 )
 
 func TestLedgerTableAndFindingsText(t *testing.T) {
@@ -60,6 +61,33 @@ func TestLedgerTableShowsTheStateAndItsAge(t *testing.T) {
 func TestFleetTableMarksANodeOnAnotherSchema(t *testing.T) {
 	out := Fleet(fleet.Summary{Nodes: []fleet.NodeSummary{{Node: "gpua", Schema: 0, GPUs: 2}}, Total: fleet.NodeSummary{Node: "fleet", Schema: 1}})
 	if !strings.Contains(out, "gpua (schema 0)") || strings.Contains(out, "fleet (schema") {
+		t.Fatalf("%s", out)
+	}
+}
+
+func TestReportTables(t *testing.T) {
+	out := Report(report.Report{Since: "7d", Jobs: []report.Job{
+		{Namespace: "video", Job: "worker", ReservedHours: 10, HeldHours: 2, IdleHours: 8, IdleShare: 0.8},
+		{Namespace: "default", Job: "restreamer", ReservedHours: 10, HeldHours: 10},
+	}, Nodes: []report.Node{{Node: "gpud", Hours: map[string]float64{"held": 12, "free": 4.25}}}})
+	for _, want := range []string{
+		"gpuledger report · the last 7d · 2 job(s), 20.0 GPU-hours reserved, 8.0 idle (40%)",
+		"│ job                │ reserved GPU-h │ held GPU-h │ idle GPU-h │ idle │",
+		"│ video/worker       │ 10.0           │ 2.0        │ 8.0        │ 80%  │",
+		"│ node │ held │ reserved-idle │ unaccounted │ free │",
+		"│ gpud │ 12.0 │ 0.0           │ 0.0         │ 4.2  │",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in\n%s", want, out)
+		}
+	}
+}
+
+// A Prometheus that has not scraped the counters twice in the window has nothing to
+// report: say so, rather than print empty tables.
+func TestEmptyReportSaysWhy(t *testing.T) {
+	out := Report(report.Report{Since: "7d"})
+	if !strings.Contains(out, "no gpuledger counters in Prometheus over the last 7d") {
 		t.Fatalf("%s", out)
 	}
 }

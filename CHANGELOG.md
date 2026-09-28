@@ -6,6 +6,10 @@ versions follow [SemVer](https://semver.org/). Items reference their `GL-n` back
 ## [Unreleased]
 
 ### Added
+- `gpuledger report --prometheus URL --since 7d`: GPU-hours per job — reserved, held,
+  idle and the idle share, most idle first — and per node and state, from the counters
+  in Prometheus; `--json` under the JSON contract; a bearer token by variable name
+  (GL-31).
 - Counters: `gpuledger_gpu_state_seconds_total{state}` per GPU (GL-29) and
   `gpuledger_job_gpu_seconds_total{namespace,nomad_job,use}` per job, `use` `held` or
   `idle` (GL-30) — GPU-hours and waste over any window with `increase()`. Kept in the

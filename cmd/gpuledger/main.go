@@ -7,6 +7,8 @@
 //	gpuledger serve     HTTP: /metrics (Prometheus), /ledger (JSON), /findings (JSON), /healthz
 //	gpuledger fleet     every node's /ledger, from --targets or Consul: `fleet ls` counts GPUs
 //	                    per node and per job, `fleet check` evaluates every node with one policy
+//	gpuledger report    GPU-hours per job (reserved, held, idle) and per node over --since,
+//	                    read back from Prometheus (--prometheus)
 //	gpuledger version
 //
 // Flags (every subcommand):
@@ -51,6 +53,7 @@ import (
 	"github.com/hiway-media/gpuledger/internal/nomad"
 	"github.com/hiway-media/gpuledger/internal/nvidia"
 	"github.com/hiway-media/gpuledger/internal/render"
+	"github.com/hiway-media/gpuledger/internal/report"
 	"github.com/hiway-media/gpuledger/internal/tlsfiles"
 	"github.com/hiway-media/gpuledger/internal/version"
 )
@@ -65,6 +68,7 @@ type options struct {
 	timeout                                             time.Duration
 	history                                             string
 	nomadService, nomadNamespace, nomadNodeID           string
+	prometheus, promTokenEnv, since                     string
 	nomadTLS                                            nomad.TLS
 	consulTLS                                           tlsfiles.Files
 }
@@ -96,6 +100,9 @@ func parse(args []string) (string, options, error) {
 	fs.IntVar(&o.encoderMax, "encoder-max", findings.Default.EncoderMax, "encoder sessions at or above which a GPU is saturated; 0: the card's own cap (none on Quadro and datacenter cards), -1: off")
 	fs.IntVar(&o.tempMax, "temp-max", findings.Default.TempMaxC, "temperature (°C) at or above which a GPU is hot, when the driver reports no thermal margin")
 	fs.DurationVar(&o.interval, "interval", 15*time.Second, "serve: refresh interval")
+	fs.StringVar(&o.prometheus, "prometheus", envOr("PROMETHEUS_URL", ""), "report: Prometheus base URL (default $PROMETHEUS_URL)")
+	fs.StringVar(&o.promTokenEnv, "prometheus-token-env", "", "report: name of the environment variable holding a bearer token for Prometheus")
+	fs.StringVar(&o.since, "since", "7d", "report: the window, a Prometheus duration (7d, 24h, 90m)")
 	fs.StringVar(&o.history, "history", "", "state history file: serve writes it, ls and check read it")
 	fs.StringVar(&o.targets, "targets", "", "fleet: gpuledger endpoints, host:port,…")
 	fs.StringVar(&o.consul, "consul", envOr("CONSUL_HTTP_ADDR", ""), "fleet: Consul address, to discover the endpoints")
@@ -141,6 +148,9 @@ func parse(args []string) (string, options, error) {
 	if o.timeout <= 0 {
 		return "", o, fmt.Errorf("--timeout %s: must be positive", o.timeout)
 	}
+	if cmd == "report" && o.prometheus == "" {
+		return "", o, fmt.Errorf("report needs --prometheus (or PROMETHEUS_URL): it reads the counters Prometheus kept")
+	}
 	if cmd == "fleet" {
 		if o.targets == "" && o.consul == "" && o.nomadService == "" {
 			return "", o, fmt.Errorf("fleet needs --targets host:port,…, --nomad-service, or --consul (or CONSUL_HTTP_ADDR)")
@@ -172,6 +182,8 @@ func usage() string {
   gpuledger serve     /metrics, /ledger, /findings, /healthz on --listen (default :9877)
   gpuledger fleet ls  every node's /ledger (--targets h:p,… or --consul): GPUs per node and job
   gpuledger fleet check  every node's findings, one policy, worst first (--json, --exit-on)
+  gpuledger report    what the GPUs cost over --since (7d): GPU-hours per job, reserved, held and
+                      idle, and per node — from the counters in Prometheus (--prometheus URL)
   gpuledger version
 
 Flags: --nomad-addr --nomad-token-env --nomad-node-id --nomad-ca-cert --nomad-ca-path --nomad-client-cert
@@ -179,6 +191,7 @@ Flags: --nomad-addr --nomad-token-env --nomad-node-id --nomad-ca-cert --nomad-ca
        --exit-on --encoder-max --temp-max --allow-unmanaged --no-idle --no-nomad --no-docker
        --listen --interval --history
        --targets --nomad-service --nomad-namespace --consul --consul-service --consul-token-env --timeout
+       --prometheus --prometheus-token-env --since
        --consul-ca-cert --consul-ca-path --consul-client-cert --consul-client-key --consul-tls-server-name
 `
 }
@@ -286,6 +299,17 @@ func main() {
 		serve(ctx, o)
 	case "fleet":
 		os.Exit(runFleet(ctx, o))
+	case "report":
+		r, err := report.New(o.prometheus, o.promTokenEnv).Build(ctx, o.since)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "gpuledger:", err)
+			os.Exit(1)
+		}
+		if o.jsonOut {
+			json.NewEncoder(os.Stdout).Encode(r)
+		} else {
+			fmt.Println(render.Report(r))
+		}
 	case "help", "-h", "--help":
 		fmt.Print(usage())
 	default:

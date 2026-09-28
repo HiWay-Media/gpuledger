@@ -8,6 +8,7 @@ import (
 	"github.com/hiway-media/gpuledger/internal/findings"
 	"github.com/hiway-media/gpuledger/internal/fleet"
 	"github.com/hiway-media/gpuledger/internal/ledger"
+	"github.com/hiway-media/gpuledger/internal/report"
 )
 
 func table(headers []string, rows [][]string) string {
@@ -151,4 +152,35 @@ func FleetFindings(fs []findings.Finding) string {
 	}
 	fmt.Fprintf(&b, "\n%d findings: %d OK, %d WARN, %d BAD, %d ERROR\n", len(fs), tally[findings.OK], tally[findings.WARN], tally[findings.BAD], tally[findings.ERROR])
 	return b.String()
+}
+
+// Report prints what the GPUs cost over the window: jobs by idle GPU-hours, then nodes.
+func Report(r report.Report) string {
+	if len(r.Jobs) == 0 && len(r.Nodes) == 0 {
+		return fmt.Sprintf("gpuledger report · no gpuledger counters in Prometheus over the last %s — increase() needs two scrapes of serve's /metrics inside the window", r.Since)
+	}
+	var reserved, idle float64
+	for _, j := range r.Jobs {
+		reserved += j.ReservedHours
+		idle += j.IdleHours
+	}
+	share := 0.0
+	if reserved > 0 {
+		share = idle / reserved
+	}
+	out := fmt.Sprintf("gpuledger report · the last %s · %d job(s), %.1f GPU-hours reserved, %.1f idle (%.0f%%)", r.Since, len(r.Jobs), reserved, idle, share*100)
+	jobs := [][]string{}
+	for _, j := range r.Jobs {
+		jobs = append(jobs, []string{j.Namespace + "/" + j.Job, fmt.Sprintf("%.1f", j.ReservedHours), fmt.Sprintf("%.1f", j.HeldHours), fmt.Sprintf("%.1f", j.IdleHours), fmt.Sprintf("%.0f%%", j.IdleShare*100)})
+	}
+	out += "\n" + table([]string{"job", "reserved GPU-h", "held GPU-h", "idle GPU-h", "idle"}, jobs)
+	nodes := [][]string{}
+	for _, n := range r.Nodes {
+		row := []string{n.Node}
+		for _, st := range []string{"held", "reserved-idle", "unaccounted", "free"} {
+			row = append(row, fmt.Sprintf("%.1f", n.Hours[st]))
+		}
+		nodes = append(nodes, row)
+	}
+	return out + "\n\nGPU-hours per node and state\n" + table([]string{"node", "held", "reserved-idle", "unaccounted", "free"}, nodes)
 }
