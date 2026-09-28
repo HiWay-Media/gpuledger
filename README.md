@@ -82,7 +82,7 @@ gpuledger check --exit-on bad --allow-unmanaged
 socket, which a container would have to be handed anyway.
 
 ```
-V=0.3.0
+V=0.4.0
 curl -fsSLO https://github.com/HiWay-Media/gpuledger/releases/download/v$V/gpuledger-v$V-checksums.txt
 nomad job run -var version=$V \
   -var checksum=sha256:$(grep linux-amd64 gpuledger-v$V-checksums.txt | cut -d' ' -f1) \
@@ -336,7 +336,7 @@ file and — from the release after 0.2.0 — build provenance you can verify: t
 binary was built by this repository's release workflow from the tagged commit.
 
 ```
-V=0.3.0
+V=0.4.0
 gh release download v$V --repo HiWay-Media/gpuledger
 sha256sum -c gpuledger-v$V-checksums.txt
 gh attestation verify gpuledger-v$V-linux-amd64 --repo HiWay-Media/gpuledger \

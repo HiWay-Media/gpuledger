@@ -134,7 +134,33 @@ matrix, on every version that has the feature.
   from the release's checksums file, and the README's install steps verifying both.
   <!-- gl: prio=med size=S labels=release,docs ver=0.3.0 -->
 
-## v0.4.0 — Told by the hardware <!-- ms: phase=now -->
+## v0.4.0 — What the GPUs cost <!-- ms: phase=shipped -->
+
+The ledger says what holds each GPU now; this says what that has cost over time. For
+each job: GPU-hours reserved, GPU-hours actually held, GPU-hours reserved and idle — the
+waste a scheduling or budget decision needs — and for each node the hours of capacity
+nobody used. Counters in `/metrics` so Prometheus keeps the history, a `report` that
+reads it back, and every number checked against a real Prometheus in the Nomad matrix.
+
+- [x] **GL-29 — State counters**: `gpuledger_gpu_state_seconds_total{state}`, seconds each
+  GPU has spent in each state, kept in the `--history` file so a restart does not reset
+  them; a gap over three intervals is counted as no state rather than guessed.
+  <!-- gl: prio=high size=M labels=ledger,tests ver=0.4.0 -->
+- [x] **GL-30 — GPU-seconds per job**: `gpuledger_job_gpu_seconds_total{namespace,nomad_job,use}`
+  with `use` held or idle — reserved and in use, reserved and not — so
+  `increase(…[7d])` is each job's GPU-hours and its waste. Labels carry the job, never a
+  tenant. <!-- gl: prio=high size=M labels=ledger,tests ver=0.4.0 -->
+- [x] **GL-31 — `gpuledger report`**: reads the counters back from Prometheus
+  (`--prometheus URL`, `--since 7d`) and prints per job GPU-hours reserved, held, idle
+  and the idle share, and per node the free GPU-hours; `--json` under the JSON contract.
+  Tested in the matrix against the real Prometheus scraping real allocations.
+  <!-- gl: prio=med size=M labels=enhancement,tests ver=0.4.0 -->
+- [x] **GL-32 — Waste in the dashboard and the rules**: panels for GPU-hours per job and
+  the idle share; an info alert when a job leaves most of what it reserved idle over a
+  day. Held to the metrics contract test and `promtool test rules` like the rest.
+  <!-- gl: prio=med size=S labels=docs,tests ver=0.4.0 -->
+
+## v0.5.0 — Told by the hardware <!-- ms: phase=now -->
 
 What CI cannot observe: the run on a GPU node with the real driver and device plugin,
 the encoder sessions only a real `nvidia-smi` shows, and the design questions the
@@ -164,29 +190,3 @@ QRSPI run settles with those answers in hand.
   info` as a read-only runner (the nvidia-smi pattern) or a dependency with its reason in
   `CLAUDE.md`. Needs the driver's labels and cgroup layout observed first, as GL-16 did
   for Podman. <!-- gl: prio=low size=M labels=collector -->
-
-## v0.5.0 — What the GPUs cost <!-- ms: phase=next -->
-
-The ledger says what holds each GPU now; this says what that has cost over time. For
-each job: GPU-hours reserved, GPU-hours actually held, GPU-hours reserved and idle — the
-waste a scheduling or budget decision needs — and for each node the hours of capacity
-nobody used. Counters in `/metrics` so Prometheus keeps the history, a `report` that
-reads it back, and every number checked against a real Prometheus in the Nomad matrix.
-
-- [x] **GL-29 — State counters**: `gpuledger_gpu_state_seconds_total{state}`, seconds each
-  GPU has spent in each state, kept in the `--history` file so a restart does not reset
-  them; a gap over three intervals is counted as no state rather than guessed.
-  <!-- gl: prio=high size=M labels=ledger,tests ver=main -->
-- [x] **GL-30 — GPU-seconds per job**: `gpuledger_job_gpu_seconds_total{namespace,nomad_job,use}`
-  with `use` held or idle — reserved and in use, reserved and not — so
-  `increase(…[7d])` is each job's GPU-hours and its waste. Labels carry the job, never a
-  tenant. <!-- gl: prio=high size=M labels=ledger,tests ver=main -->
-- [x] **GL-31 — `gpuledger report`**: reads the counters back from Prometheus
-  (`--prometheus URL`, `--since 7d`) and prints per job GPU-hours reserved, held, idle
-  and the idle share, and per node the free GPU-hours; `--json` under the JSON contract.
-  Tested in the matrix against the real Prometheus scraping real allocations.
-  <!-- gl: prio=med size=M labels=enhancement,tests ver=main -->
-- [x] **GL-32 — Waste in the dashboard and the rules**: panels for GPU-hours per job and
-  the idle share; an info alert when a job leaves most of what it reserved idle over a
-  day. Held to the metrics contract test and `promtool test rules` like the rest.
-  <!-- gl: prio=med size=S labels=docs,tests ver=main -->
