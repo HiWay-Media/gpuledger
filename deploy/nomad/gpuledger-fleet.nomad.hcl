@@ -41,6 +41,14 @@ variable "discovery" {
   default = ["--nomad-service", "gpuledger"]
 }
 
+# Register the service in Consul. From Nomad 1.3 a Consul service adds the placement
+# constraint ${attr.consul.version} >= 1.8.0: on a cluster without Consul the job would
+# never be placed, so -var consul=false leaves the registration out.
+variable "consul" {
+  type    = bool
+  default = true
+}
+
 job "gpuledger-fleet" {
   type        = "service"
   datacenters = var.datacenters
@@ -55,15 +63,18 @@ job "gpuledger-fleet" {
       }
     }
 
-    service {
-      name = "gpuledger-fleet"
-      port = "http"
-      tags = ["prometheus", "metrics"]
-      check {
-        type     = "http"
-        path     = "/healthz"
-        interval = "30s"
-        timeout  = "5s"
+    dynamic "service" {
+      for_each = var.consul ? [1] : []
+      content {
+        name = "gpuledger-fleet"
+        port = "http"
+        tags = ["prometheus", "metrics"]
+        check {
+          type     = "http"
+          path     = "/healthz"
+          interval = "30s"
+          timeout  = "5s"
+        }
       }
     }
 

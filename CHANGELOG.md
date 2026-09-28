@@ -5,6 +5,12 @@ versions follow [SemVer](https://semver.org/). Items reference their `GL-n` back
 
 ## [Unreleased]
 
+### Fixed
+- On a cluster without Consul, from Nomad 1.3, the system job was never placed: a Consul
+  `service` block adds the constraint `${attr.consul.version} >= 1.8.0`. All three job
+  specs take `-var consul=false`, which leaves the registration out. Found by running
+  the fleet job in the Nomad matrix.
+
 ### Added
 - `gpuledger fleet serve`: polls the fleet every `--interval` and serves its page (each
   node linked to its own), `/fleet` JSON, `/metrics` with the cluster's totals

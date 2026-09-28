@@ -545,6 +545,9 @@ node { policy = "read" }`)
 	if out, err := validate("checksum=sha256:" + strings.Repeat("0", 64)); err != nil {
 		t.Errorf("nomad job validate deploy/nomad/gpuledger.nomad.hcl: %v\n%s", err, out)
 	}
+	if out, err := validate("checksum=sha256:"+strings.Repeat("0", 64), "consul=false"); err != nil {
+		t.Errorf("nomad job validate deploy/nomad/gpuledger.nomad.hcl -var consul=false: %v\n%s", err, out)
+	}
 	if out, err := validate(); err == nil {
 		t.Errorf("the system job must require -var checksum=…:\n%s", out)
 	}
@@ -1298,7 +1301,7 @@ func fleetJob(t *testing.T, a *agent, bin, listen string) {
 	run := exec.Command(os.Getenv("NOMAD_BIN"), "job", "run", "-detach",
 		"-var", "version=it", "-var", fmt.Sprintf("checksum=sha256:%x", sum),
 		"-var", "artifact_url=http://"+ln.Addr().String()+"/gpuledger",
-		"-var", `datacenters=["dc1"]`, "-var", fmt.Sprintf("port=%d", port),
+		"-var", `datacenters=["dc1"]`, "-var", fmt.Sprintf("port=%d", port), "-var", "consul=false",
 		"-var", fmt.Sprintf(`discovery=["--targets","%s"]`, listen),
 		"../deploy/nomad/gpuledger-fleet.nomad.hcl")
 	run.Env = append(os.Environ(), "NOMAD_ADDR="+a.addr, "NOMAD_TOKEN="+a.mgmt)

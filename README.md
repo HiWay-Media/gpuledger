@@ -253,6 +253,11 @@ TLS; half a key pair is refused before any request.
 to skip it, or an endpoint of your own); a Podman endpoint you name that cannot be read
 is a `source-unavailable`, the default one that does not exist is simply no Podman.
 
+**Without Consul**, run the job specs with `-var consul=false`: from Nomad 1.3 a Consul
+`service` block adds the placement constraint `${attr.consul.version} >= 1.8.0`, and on
+a node without Consul the job is never placed. The registration is a `dynamic` block
+on that variable, default on.
+
 **Turn on the docker driver's `extra_labels`** (`job_name`, `task_name`, `namespace`) on
 GPU nodes: without them a Nomad tenant is known by its allocation id and container name
 only.
