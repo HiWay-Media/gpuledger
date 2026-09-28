@@ -13,8 +13,8 @@
 | **v0.1.0 — One node, told the truth** | shipped | `##########` 100% | 0 | 11 |
 | **v0.2.0 — The whole cluster, watched** | shipped | `##########` 100% | 0 | 8 |
 | **v0.3.0 — A hardened cluster** | shipped | `##########` 100% | 0 | 5 |
-| **v0.4.0 — Told by the hardware** | now | `..........` 0% | 4 | 0 |
-| **v0.5.0 — What the GPUs cost** | next | `##########` 100% | 0 | 4 |
+| **v0.4.0 — What the GPUs cost** | shipped | `##########` 100% | 0 | 4 |
+| **v0.5.0 — Told by the hardware** | now | `..........` 0% | 4 | 0 |
 
 ## v0.1.0 — One node, told the truth
 
@@ -49,16 +49,16 @@
 - [x] **GL-27** — Consul over TLS · low · S · enhancement, tests · `0.3.0`
 - [x] **GL-28** — Verifiable releases · med · S · release, docs · `0.3.0`
 
-## v0.4.0 — Told by the hardware
+## v0.4.0 — What the GPUs cost
+
+- [x] **GL-29** — State counters · high · M · ledger, tests · `0.4.0`
+- [x] **GL-30** — GPU-seconds per job · high · M · ledger, tests · `0.4.0`
+- [x] **GL-31** — `gpuledger report` · med · M · enhancement, tests · `0.4.0`
+- [x] **GL-32** — Waste in the dashboard and the rules · med · S · docs, tests · `0.4.0`
+
+## v0.5.0 — Told by the hardware
 
 - [ ] **GL-10** — First run on a real node · high · S · benchmark
 - [ ] **GL-11** — Encoder-only sessions · med · M · collector
 - [ ] **GL-1** — Run QRSPI on the brief: Questions → Research → Spec → Plan · high · L · ledger
 - [ ] **GL-23** — containerd · low · M · collector
-
-## v0.5.0 — What the GPUs cost
-
-- [x] **GL-29** — State counters · high · M · ledger, tests · `main`
-- [x] **GL-30** — GPU-seconds per job · high · M · ledger, tests · `main`
-- [x] **GL-31** — `gpuledger report` · med · M · enhancement, tests · `main`
-- [x] **GL-32** — Waste in the dashboard and the rules · med · S · docs, tests · `main`

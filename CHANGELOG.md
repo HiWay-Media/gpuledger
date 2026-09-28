@@ -5,6 +5,21 @@ versions follow [SemVer](https://semver.org/). Items reference their `GL-n` back
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-09-28
+
+What the GPUs cost: counters of the seconds each GPU spends in each state and of each
+job's GPU-seconds, held or idle; `gpuledger report` reading them back from Prometheus;
+the waste in the dashboard and an alert on it. Every number checked through a real
+Prometheus on real Nomad allocations in the matrix; the driver side, as before, only
+against a fake nvidia-smi (GL-10, v0.5.0).
+
+**Upgrading from 0.3.0**
+- Nothing to change: the counters are new series, and `report` is a new command.
+- `serve --history` (which the job specs set) keeps the counters across restarts; without
+  it they start from zero at each start, which Prometheus reads as a counter reset.
+- The dashboard has three new panels and the rules a new alert; re-import them to get
+  them.
+
 ### Added
 - The cost in the dashboard and the rules: GPU-hours per job over the range, the idle
   share per job, GPUs per state from the counters; `GPULedgerJobMostlyIdle` (info) when
