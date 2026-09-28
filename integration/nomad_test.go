@@ -28,7 +28,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -847,9 +846,9 @@ func dashboardAgainstPrometheus(t *testing.T, bin, promBin, listen string, label
 		}
 	}
 	rules, _ := os.ReadFile("../deploy/prometheus/gpuledger.rules.yml")
-	for _, m := range regexp.MustCompile(`(?m)^\s+expr: (.+)$`).FindAllStringSubmatch(string(rules), -1) {
-		if st, _, err := query(m[1]); err != nil || st != "success" {
-			t.Errorf("rule %s: %v %s", m[1], err, st)
+	for _, expr := range ruleExprs(string(rules)) {
+		if st, _, err := query(expr); err != nil || st != "success" {
+			t.Errorf("rule %s: %v %s", expr, err, st)
 		}
 	}
 	// GPU-seconds per job, from real reservations: enc holds its GPU, idle (in the second
@@ -1157,4 +1156,56 @@ func gl(t *testing.T, a *agent, token string, args ...string) []byte {
 	cmd.Env = append(os.Environ(), "GL_IT_TOKEN="+token)
 	out, _ := cmd.Output()
 	return out
+}
+
+// ruleExprs reads every expr of a rules file, one-line or a "|" block scalar — enough
+// YAML for gpuledger's own file, without a YAML dependency.
+func ruleExprs(rules string) []string {
+	var out []string
+	lines := strings.Split(rules, "\n")
+	for i := 0; i < len(lines); i++ {
+		trimmed := strings.TrimSpace(lines[i])
+		if !strings.HasPrefix(trimmed, "expr:") {
+			continue
+		}
+		v := strings.TrimSpace(strings.TrimPrefix(trimmed, "expr:"))
+		if v != "|" {
+			out = append(out, v)
+			continue
+		}
+		indent := len(lines[i]) - len(strings.TrimLeft(lines[i], " "))
+		var block []string
+		for i+1 < len(lines) {
+			next := lines[i+1]
+			if strings.TrimSpace(next) != "" && len(next)-len(strings.TrimLeft(next, " ")) <= indent {
+				break
+			}
+			block = append(block, strings.TrimSpace(next))
+			i++
+		}
+		out = append(out, strings.TrimSpace(strings.Join(block, " ")))
+	}
+	return out
+}
+
+// TestRuleExprs needs no Nomad: the reader must see every rule of the real file, block
+// scalars whole.
+func TestRuleExprs(t *testing.T) {
+	b, err := os.ReadFile("../deploy/prometheus/gpuledger.rules.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	exprs := ruleExprs(string(b))
+	if n := strings.Count(string(b), "- alert:"); len(exprs) != n {
+		t.Fatalf("%d exprs for %d alerts: %q", len(exprs), n, exprs)
+	}
+	for _, e := range exprs {
+		if e == "" || e == "|" || strings.Contains(e, "labels:") {
+			t.Fatalf("misread: %q", e)
+		}
+	}
+	last := exprs[len(exprs)-1]
+	if !strings.HasPrefix(last, "(") || !strings.Contains(last, "and sum by (namespace, nomad_job)") || !strings.HasSuffix(last, "> 3600") {
+		t.Fatalf("the block scalar whole: %q", last)
+	}
 }
