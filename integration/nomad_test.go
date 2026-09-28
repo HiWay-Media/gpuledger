@@ -17,6 +17,7 @@ package integration
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
@@ -206,6 +207,11 @@ plugin "nomad-device-fake" {
   config {
     dir         = %q
     list_period = "1s"
+  }
+}
+plugin "raw_exec" {
+  config {
+    enabled = true
   }
 }
 %s
@@ -539,6 +545,9 @@ node { policy = "read" }`)
 	if out, err := validate("checksum=sha256:" + strings.Repeat("0", 64)); err != nil {
 		t.Errorf("nomad job validate deploy/nomad/gpuledger.nomad.hcl: %v\n%s", err, out)
 	}
+	if out, err := validate("checksum=sha256:"+strings.Repeat("0", 64), "consul=false"); err != nil {
+		t.Errorf("nomad job validate deploy/nomad/gpuledger.nomad.hcl -var consul=false: %v\n%s", err, out)
+	}
 	if out, err := validate(); err == nil {
 		t.Errorf("the system job must require -var checksum=…:\n%s", out)
 	}
@@ -637,6 +646,7 @@ func metrics(t *testing.T, a *agent, bin, smi, token, promtool string) {
 	}
 
 	viaNomadServices(t, a, bin, listen, token)
+	fleetJob(t, a, bin, listen)
 
 	if consulBin := os.Getenv("CONSUL_BIN"); consulBin != "" {
 		viaConsul(t, bin, consulBin, listen)
@@ -1266,6 +1276,85 @@ func distinctPorts(t *testing.T, n int) []int {
 		if p := freePort(t); !seen[p] {
 			seen[p] = true
 			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// fleetJob runs deploy/nomad/gpuledger-fleet.nomad.hcl as an operator would — nomad job
+// run with the version's checksum — with the binary of this commit served locally, and
+// waits for the fleet view, run by Nomad under raw_exec, to show the real node.
+func fleetJob(t *testing.T, a *agent, bin, listen string) {
+	b, err := os.ReadFile(bin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(b)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.Write(b) })}
+	go srv.Serve(ln)
+	defer srv.Close()
+	port := freePort(t)
+	run := exec.Command(os.Getenv("NOMAD_BIN"), "job", "run", "-detach",
+		"-var", "version=it", "-var", fmt.Sprintf("checksum=sha256:%x", sum),
+		"-var", "artifact_url=http://"+ln.Addr().String()+"/gpuledger",
+		"-var", `datacenters=["dc1"]`, "-var", fmt.Sprintf("port=%d", port), "-var", "consul=false",
+		"-var", fmt.Sprintf(`discovery=["--targets","%s"]`, listen),
+		"../deploy/nomad/gpuledger-fleet.nomad.hcl")
+	run.Env = append(os.Environ(), "NOMAD_ADDR="+a.addr, "NOMAD_TOKEN="+a.mgmt)
+	if out, err := run.CombinedOutput(); err != nil {
+		t.Fatalf("nomad job run deploy/nomad/gpuledger-fleet.nomad.hcl: %v\n%s", err, out)
+	}
+	defer a.do("DELETE", "/v1/job/gpuledger-fleet?purge=true", a.mgmt, nil, nil)
+	var body []byte
+	eventually(t, "the fleet view run by Nomad", 90*time.Second, func() (bool, string) {
+		res, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/fleet", port))
+		if err != nil {
+			return false, err.Error() + " — " + jobEvents(a, "gpuledger-fleet")
+		}
+		defer res.Body.Close()
+		body, _ = io.ReadAll(res.Body)
+		return res.StatusCode == 200 && bytes.Contains(body, []byte(`"node":"it"`)) && bytes.Contains(body, []byte(`"gpus":3`)), string(body)
+	})
+	t.Logf("fleet job: %s", bytes.TrimSpace(body)[:120])
+}
+
+// jobEvents is what Nomad says about a job's allocations: status and the last task
+// events, for a failure message that explains itself.
+func jobEvents(a *agent, job string) string {
+	var allocs []struct {
+		ID, ClientStatus, ClientDescription string
+		TaskStates                          map[string]struct {
+			State  string
+			Events []struct{ Type, DisplayMessage string }
+		}
+	}
+	a.do("GET", "/v1/job/"+job+"/allocations", a.mgmt, nil, &allocs)
+	var eval []struct {
+		Status, StatusDescription string
+		FailedTGAllocs            map[string]any
+	}
+	a.do("GET", "/v1/job/"+job+"/evaluations", a.mgmt, nil, &eval)
+	out := fmt.Sprintf("%d alloc(s)", len(allocs))
+	for _, e := range eval {
+		if len(e.FailedTGAllocs) > 0 {
+			b, _ := json.Marshal(e.FailedTGAllocs)
+			out += fmt.Sprintf("; placement failed: %s", b)
+		}
+	}
+	for _, al := range allocs {
+		out += fmt.Sprintf("; %s %s", al.ClientStatus, al.ClientDescription)
+		for task, ts := range al.TaskStates {
+			n := len(ts.Events)
+			if n > 4 {
+				ts.Events = ts.Events[n-4:]
+			}
+			for _, ev := range ts.Events {
+				out += fmt.Sprintf("; %s: %s %s", task, ev.Type, ev.DisplayMessage)
+			}
 		}
 	}
 	return out

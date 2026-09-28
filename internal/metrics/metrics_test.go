@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/hiway-media/gpuledger/internal/findings"
+	"github.com/hiway-media/gpuledger/internal/fleet"
 	"github.com/hiway-media/gpuledger/internal/history"
 	"github.com/hiway-media/gpuledger/internal/ledger"
 	"github.com/hiway-media/gpuledger/internal/nvidia"
@@ -169,5 +170,33 @@ func TestCountersAreCounters(t *testing.T) {
 	}
 	if strings.Contains(Render(ledger.Ledger{Node: "gpud"}, nil, nil, nil), "_seconds_total{") {
 		t.Error("no counters, no samples")
+	}
+}
+
+func TestFleetMetrics(t *testing.T) {
+	s := fleet.Summary{
+		Nodes: []fleet.NodeSummary{{Node: "gpud", GPUs: 2, Held: 1, ReservedIdle: 1}, {Node: "gpuf", Err: "down"}},
+		Jobs:  []fleet.JobSummary{{Namespace: "video", Job: "worker", Reserved: 2, Held: 1}},
+		Total: fleet.NodeSummary{Node: "fleet", GPUs: 2, Held: 1, ReservedIdle: 1, Unreachable: 1},
+	}
+	fs := []findings.Finding{{Level: findings.ERROR, Code: "source-unavailable"}}
+	out := Fleet(s, fs, findings.Codes(findings.Default))
+	for _, want := range []string{
+		`gpuledger_fleet_up 1`,
+		`gpuledger_fleet_nodes{state="read"} 1`,
+		`gpuledger_fleet_nodes{state="unreachable"} 1`,
+		`gpuledger_fleet_gpus{state="held"} 1`,
+		`gpuledger_fleet_gpus{state="free"} 0`,
+		`gpuledger_fleet_job_gpus{namespace="video",nomad_job="worker",use="reserved"} 2`,
+		`gpuledger_fleet_job_gpus{namespace="video",nomad_job="worker",use="held"} 1`,
+		`gpuledger_fleet_findings{code="source-unavailable",level="ERROR"} 1`,
+		`gpuledger_fleet_findings{code="held",level="OK"} 0`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %s in\n%s", want, out)
+		}
+	}
+	if !strings.Contains(Fleet(fleet.Summary{Nodes: []fleet.NodeSummary{{Node: "gpuf", Err: "down"}}, Total: fleet.NodeSummary{Unreachable: 1}}, nil, nil), "gpuledger_fleet_up 0") {
+		t.Error("no node read: up is 0")
 	}
 }

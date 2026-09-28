@@ -163,6 +163,17 @@ Without Consul, Nomad's own service discovery (1.3+) does the same job: set
 TLS as the rest, and the same policy file (listing a service needs `read-job`, which it
 has). The job spec leaves `provider` out, so it still validates on Nomad before 1.3.
 
+**`fleet serve`** keeps that view up: one process polls the nodes every `--interval`
+(the same discovery flags) and serves the fleet's page at `/` — each node linked to its
+own page — `/fleet` as JSON, and `/metrics` with the cluster's totals:
+`gpuledger_fleet_up`, `gpuledger_fleet_nodes{state}`, `gpuledger_fleet_gpus{state}`,
+`gpuledger_fleet_job_gpus{namespace,nomad_job,use}`, `gpuledger_fleet_findings{code,level}`.
+It listens on 9878, beside a node's 9877; `/healthz` is 503 only when no node could be
+read. As a Nomad job, one instance anywhere:
+[`deploy/nomad/gpuledger-fleet.nomad.hcl`](deploy/nomad/gpuledger-fleet.nomad.hcl)
+(`-var 'discovery=[…]'` picks Nomad services, Consul or a list; the checksum is
+required), which the Nomad matrix runs on every version.
+
 It asks the nodes' gpuledger only, never their Nomad, Docker or driver: each node is
 seen exactly as its own agent sees it. `--consul` defaults to `$CONSUL_HTTP_ADDR`, the
 Consul token comes from the variable named by `--consul-token-env` (`CONSUL_HTTP_TOKEN`),
@@ -241,6 +252,11 @@ TLS; half a key pair is refused before any request.
 **Podman** is read next to Docker when `/run/podman/podman.sock` exists (`--podman off`
 to skip it, or an endpoint of your own); a Podman endpoint you name that cannot be read
 is a `source-unavailable`, the default one that does not exist is simply no Podman.
+
+**Without Consul**, run the job specs with `-var consul=false`: from Nomad 1.3 a Consul
+`service` block adds the placement constraint `${attr.consul.version} >= 1.8.0`, and on
+a node without Consul the job is never placed. The registration is a `dynamic` block
+on that variable, default on.
 
 **Turn on the docker driver's `extra_labels`** (`job_name`, `task_name`, `namespace`) on
 GPU nodes: without them a Nomad tenant is known by its allocation id and container name

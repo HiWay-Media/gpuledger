@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/hiway-media/gpuledger/internal/findings"
+	"github.com/hiway-media/gpuledger/internal/fleet"
 	"github.com/hiway-media/gpuledger/internal/ledger"
 	"github.com/hiway-media/gpuledger/internal/nomad"
 	"github.com/hiway-media/gpuledger/internal/nvidia"
@@ -90,5 +91,28 @@ func TestSecure(t *testing.T) {
 func TestStyleCarriesBothThemes(t *testing.T) {
 	if !strings.Contains(Style, "prefers-color-scheme: dark") || !strings.Contains(Style, ".level.BAD") {
 		t.Fatal(Style)
+	}
+}
+
+func TestFleetPage(t *testing.T) {
+	s := fleet.Summary{Schema: 1,
+		Nodes: []fleet.NodeSummary{{Node: "gpud", Schema: 1, GPUs: 2, Held: 1, ReservedIdle: 1, MemoryUsedMiB: 1024, MemoryTotalMiB: 16384}, {Node: `gpuf"><b>x`, Err: "connection refused"}},
+		Jobs:  []fleet.JobSummary{{Namespace: "video", Job: "worker", Reserved: 2, Held: 1}},
+		Total: fleet.NodeSummary{Node: "fleet", Schema: 1, GPUs: 2, Held: 1, ReservedIdle: 1, Unreachable: 1},
+	}
+	urls := map[string]string{"gpud": "http://10.0.0.4:9877"}
+	fs := []findings.Finding{{Level: findings.ERROR, Code: "source-unavailable", Node: "gpuf", Message: "down"}}
+	b, err := FleetPage(s, fs, urls, at, 30*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(b)
+	for _, want := range []string{`content="30"`, `<a href="http://10.0.0.4:9877/">gpud</a>`, "video/worker", "unreachable", "connection refused", `class="level ERROR"`, "1 unreachable"} {
+		if !strings.Contains(page, want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+	if strings.Contains(page, "<b>x") {
+		t.Fatalf("a node name is text: %s", page)
 	}
 }

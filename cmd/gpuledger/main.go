@@ -129,12 +129,18 @@ func parse(args []string) (string, options, error) {
 		if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 			o.sub, args = args[0], args[1:]
 		}
-		if o.sub != "ls" && o.sub != "check" {
-			return "", o, fmt.Errorf("fleet %q: want fleet ls or fleet check", o.sub)
+		if o.sub != "ls" && o.sub != "check" && o.sub != "serve" {
+			return "", o, fmt.Errorf("fleet %q: want fleet ls, fleet check or fleet serve", o.sub)
 		}
 	}
 	if err := fs.Parse(args); err != nil {
 		return "", o, err
+	}
+	// fleet serve runs beside a node's serve as often as not: its own default port.
+	listenSet := false
+	fs.Visit(func(f *flag.Flag) { listenSet = listenSet || f.Name == "listen" })
+	if cmd == "fleet" && o.sub == "serve" && !listenSet {
+		o.listen = ":9878"
 	}
 	if fs.NArg() > 0 {
 		return "", o, fmt.Errorf("unexpected argument %q: the command comes first, then its flags", fs.Arg(0))
@@ -184,6 +190,7 @@ func usage() string {
   gpuledger serve     /metrics, /ledger, /findings, /healthz on --listen (default :9877)
   gpuledger fleet ls  every node's /ledger (--targets h:p,… or --consul): GPUs per node and job
   gpuledger fleet check  every node's findings, one policy, worst first (--json, --exit-on)
+  gpuledger fleet serve  the fleet's page, /fleet, /metrics with the cluster's totals (--listen :9878)
   gpuledger report    what the GPUs cost over --since (7d): GPU-hours per job, reserved, held and
                       idle, and per node — from the counters in Prometheus (--prometheus URL)
   gpuledger version
@@ -464,6 +471,10 @@ func discover(ctx context.Context, o options) ([]fleet.Target, []fleet.Node) {
 }
 
 func runFleet(ctx context.Context, o options) int {
+	if o.sub == "serve" {
+		fleetServe(ctx, o)
+		return 1
+	}
 	targets, failed := discover(ctx, o)
 	nodes := append(failed, fleet.Fetch(ctx, targets, o.timeout)...)
 	at := time.Now()
@@ -504,4 +515,81 @@ func podmanEndpoint(flag, socket string) string {
 		return ""
 	}
 	return flag
+}
+
+// fleetServe polls the fleet every --interval and serves it: the fleet page, /fleet,
+// /metrics with the cluster's totals, /healthz — behind web.Secure like serve.
+func fleetServe(ctx context.Context, o options) {
+	type snapshot struct {
+		at    time.Time
+		nodes []fleet.Node
+	}
+	poll := func() snapshot {
+		targets, failed := discover(ctx, o)
+		return snapshot{time.Now(), append(failed, fleet.Fetch(ctx, targets, o.timeout)...)}
+	}
+	var mu sync.RWMutex
+	current := poll()
+	go func() {
+		t := time.NewTicker(o.interval)
+		defer t.Stop()
+		for range t.C {
+			s := poll()
+			mu.Lock()
+			current = s
+			mu.Unlock()
+		}
+	}()
+	snap := func() snapshot {
+		mu.RLock()
+		defer mu.RUnlock()
+		return current
+	}
+	p := policy(o)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/{$}", func(w http.ResponseWriter, _ *http.Request) {
+		s := snap()
+		urls := map[string]string{}
+		for _, n := range s.nodes {
+			if n.Err == "" {
+				urls[n.Name()] = n.Target.URL
+			}
+		}
+		page, err := web.FleetPage(fleet.Summarise(s.nodes), fleet.Findings(s.nodes, p), urls, s.at, o.interval)
+		if err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write(page)
+	})
+	mux.HandleFunc("/style.css", web.StyleHandler)
+	mux.HandleFunc("/fleet", func(w http.ResponseWriter, _ *http.Request) {
+		s := snap()
+		fs := fleet.Findings(s.nodes, p)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"schema": ledger.Schema, "at": s.at, "summary": fleet.Summarise(s.nodes), "findings": fs, "worst": findings.Worst(fs)})
+	})
+	mux.HandleFunc("/metrics", func(w http.ResponseWriter, _ *http.Request) {
+		s := snap()
+		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+		fmt.Fprint(w, metrics.Fleet(fleet.Summarise(s.nodes), fleet.Findings(s.nodes, p), findings.Codes(p)))
+	})
+	// Unhealthy only when there is nothing to show: discovery failed or no node was
+	// read. One node down is a finding on the page, not a reason to restart this.
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+		sum := fleet.Summarise(snap().nodes)
+		if len(sum.Nodes)-sum.Total.Unreachable == 0 {
+			w.WriteHeader(503)
+			for _, n := range sum.Nodes {
+				fmt.Fprintf(w, "%s: %s\n", n.Node, n.Err)
+			}
+			return
+		}
+		fmt.Fprintln(w, "ok")
+	})
+	fmt.Fprintf(os.Stderr, "gpuledger %s fleet serving on %s (poll %s)\n", version.Version, o.listen, o.interval)
+	if err := http.ListenAndServe(o.listen, web.Secure(mux)); err != nil {
+		fmt.Fprintln(os.Stderr, "gpuledger:", err)
+	}
 }

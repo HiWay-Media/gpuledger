@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/hiway-media/gpuledger/internal/findings"
+	"github.com/hiway-media/gpuledger/internal/fleet"
 	"github.com/hiway-media/gpuledger/internal/ledger"
 )
 
@@ -157,4 +158,91 @@ func tenant(t ledger.Tenant) string {
 		mark = " · outside Nomad"
 	}
 	return fmt.Sprintf("%s: %s, %d MiB%s", t.Kind, name, t.UsedMemoryMiB, mark)
+}
+
+type fleetNodeRow struct {
+	Node, URL, Memory, Err                              string
+	GPUs, Held, ReservedIdle, Unaccounted, Free, Schema int
+	OtherSchema                                         bool
+}
+
+type fleetView struct {
+	At, Worst string
+	Refresh   int
+	Nodes     []fleetNodeRow
+	Total     fleetNodeRow
+	Unread    int
+	Jobs      []fleet.JobSummary
+	Findings  []findingRow
+}
+
+var fleetTmpl = template.Must(template.New("fleet").Parse(`<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="refresh" content="{{.Refresh}}">
+<title>gpuledger · fleet</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>gpuledger <span class="node">fleet</span></h1>
+  <p class="meta"><span class="level {{.Worst}}">{{.Worst}}</span> · {{len .Nodes}} node(s){{if .Unread}}, {{.Unread}} unreachable{{end}} · {{.Total.GPUs}} GPU(s) · read {{.At}} · refreshes every {{.Refresh}} s · <a href="fleet">JSON</a> · <a href="metrics">metrics</a></p>
+</header>
+<main>
+<section>
+<h2>Nodes</h2>
+<div class="scroll"><table>
+<thead><tr><th>node</th><th>gpus</th><th>held</th><th>reserved-idle</th><th>unaccounted</th><th>free</th><th>memory</th></tr></thead>
+<tbody>
+{{range .Nodes}}<tr><td>{{if .URL}}<a href="{{.URL}}/">{{.Node}}</a>{{else}}{{.Node}}{{end}}{{if .OtherSchema}} <span class="since">schema {{.Schema}}</span>{{end}}</td>{{if .Err}}<td colspan="6"><span class="level ERROR">unreachable</span> {{.Err}}</td>{{else}}<td class="num">{{.GPUs}}</td><td class="num">{{.Held}}</td><td class="num">{{.ReservedIdle}}</td><td class="num">{{.Unaccounted}}</td><td class="num">{{.Free}}</td><td class="num">{{.Memory}}</td>{{end}}</tr>
+{{end}}<tr class="total"><td>fleet</td><td class="num">{{.Total.GPUs}}</td><td class="num">{{.Total.Held}}</td><td class="num">{{.Total.ReservedIdle}}</td><td class="num">{{.Total.Unaccounted}}</td><td class="num">{{.Total.Free}}</td><td class="num">{{.Total.Memory}}</td></tr>
+</tbody>
+</table></div>
+</section>
+{{if .Jobs}}<section>
+<h2>Jobs</h2>
+<div class="scroll"><table>
+<thead><tr><th>job</th><th>reserved</th><th>held</th></tr></thead>
+<tbody>
+{{range .Jobs}}<tr><td>{{.Namespace}}/{{.Job}}</td><td class="num">{{.Reserved}}</td><td class="num">{{.Held}}</td></tr>
+{{end}}</tbody>
+</table></div>
+</section>{{end}}
+<section>
+<h2>Findings</h2>
+<ul class="findings">
+{{range .Findings}}<li><span class="level {{.Level}}">{{.Level}}</span> <code>{{.Code}}</code> <span class="where">{{.Where}}</span> {{.Message}}</li>
+{{else}}<li class="none">none</li>{{end}}</ul>
+</section>
+</main>
+<footer>gpuledger — read-only. It reads each node's /ledger and changes nothing.</footer>
+</body>
+</html>
+`))
+
+// FleetPage renders the fleet: nodes (each linked to its own page when urls knows
+// where it is), the total, jobs and the fleet's findings.
+func FleetPage(s fleet.Summary, fs []findings.Finding, urls map[string]string, at time.Time, refresh time.Duration) ([]byte, error) {
+	row := func(n fleet.NodeSummary) fleetNodeRow {
+		return fleetNodeRow{Node: n.Node, URL: urls[n.Node], Err: n.Err, GPUs: n.GPUs, Held: n.Held, ReservedIdle: n.ReservedIdle, Unaccounted: n.Unaccounted, Free: n.Free, Schema: n.Schema, OtherSchema: n.Err == "" && n.Schema != ledger.Schema, Memory: fmt.Sprintf("%d/%d MiB", n.MemoryUsedMiB, n.MemoryTotalMiB)}
+	}
+	v := fleetView{At: at.UTC().Format("2006-01-02 15:04:05Z"), Worst: string(findings.Worst(fs)), Refresh: int(refresh.Seconds()), Total: row(s.Total), Unread: s.Total.Unreachable, Jobs: s.Jobs}
+	if v.Refresh < 1 {
+		v.Refresh = 1
+	}
+	for _, n := range s.Nodes {
+		v.Nodes = append(v.Nodes, row(n))
+	}
+	for _, f := range fs {
+		where := f.Node
+		if f.GPU != "" {
+			where += " " + f.GPU
+		}
+		v.Findings = append(v.Findings, findingRow{Level: string(f.Level), Code: f.Code, Where: where, Message: f.Message})
+	}
+	var b bytes.Buffer
+	err := fleetTmpl.Execute(&b, v)
+	return b.Bytes(), err
 }
