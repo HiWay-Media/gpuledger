@@ -1038,8 +1038,16 @@ func viaConsulTLS(t *testing.T, bin, consulBin, listen string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	https := freePort(t)
-	cfg := fmt.Sprintf(`ports { https = %d }
+	// Five ports that must differ, from an OS that may hand one out twice or to someone
+	// else before Consul binds it: start, wait for the HTTPS port to accept, and on a
+	// failed start try again with fresh ports.
+	var https int
+	var log bytes.Buffer
+	started := false
+	for attempt := 1; attempt <= 3 && !started; attempt++ {
+		ports := distinctPorts(t, 5)
+		https = ports[0]
+		cfg := fmt.Sprintf(`ports { https = %d }
 tls {
   defaults {
     ca_file         = %q
@@ -1049,18 +1057,42 @@ tls {
   }
 }
 `, https, set.CA, set.ServerCert, set.ServerKey)
-	os.WriteFile(filepath.Join(dir, "consul.hcl"), []byte(cfg), 0o644)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	cmd := exec.CommandContext(ctx, consulBin, "agent", "-dev", "-config-file", filepath.Join(dir, "consul.hcl"), "-http-port", fmt.Sprint(freePort(t)), "-dns-port", "-1", "-grpc-port", "-1", "-serf-lan-port", fmt.Sprint(freePort(t)), "-serf-wan-port", fmt.Sprint(freePort(t)), "-server-port", fmt.Sprint(freePort(t)))
-	var log bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &log, &log
-	if err := cmd.Start(); err != nil {
-		t.Fatal(err)
+		os.WriteFile(filepath.Join(dir, "consul.hcl"), []byte(cfg), 0o644)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		os.RemoveAll(filepath.Join(dir, "data"))
+		cmd := exec.CommandContext(ctx, consulBin, "agent", "-dev", "-config-file", filepath.Join(dir, "consul.hcl"), "-http-port", fmt.Sprint(ports[1]), "-dns-port", "-1", "-grpc-port", "-1", "-serf-lan-port", fmt.Sprint(ports[2]), "-serf-wan-port", fmt.Sprint(ports[3]), "-server-port", fmt.Sprint(ports[4]))
+		log.Reset()
+		cmd.Stdout, cmd.Stderr = &log, &log
+		if err := cmd.Start(); err != nil {
+			t.Fatal(err)
+		}
+		exited := make(chan struct{})
+		go func() { cmd.Wait(); close(exited) }()
+		for end := time.Now().Add(20 * time.Second); time.Now().Before(end); time.Sleep(250 * time.Millisecond) {
+			select {
+			case <-exited:
+				end = time.Now()
+				continue
+			default:
+			}
+			if c, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", https), time.Second); err == nil {
+				c.Close()
+				started = true
+				break
+			}
+		}
+		if !started {
+			t.Logf("Consul over TLS did not start (attempt %d):\n%s", attempt, log.String())
+			cancel()
+		}
+	}
+	if !started {
+		t.Fatal("Consul over TLS never started")
 	}
 	defer func() {
 		if t.Failed() {
-			t.Logf("consul log:\n%s", log.String())
+			t.Logf("consul (TLS) log:\n%s", log.String())
 		}
 	}()
 	pool := x509.NewCertPool()
@@ -1224,4 +1256,17 @@ func TestRuleExprs(t *testing.T) {
 	if !strings.HasPrefix(last, "(") || !strings.Contains(last, "and sum by (namespace, nomad_job)") || !strings.HasSuffix(last, "> 3600") {
 		t.Fatalf("the block scalar whole: %q", last)
 	}
+}
+
+// distinctPorts are n free ports, all different from each other.
+func distinctPorts(t *testing.T, n int) []int {
+	seen := map[int]bool{}
+	var out []int
+	for len(out) < n {
+		if p := freePort(t); !seen[p] {
+			seen[p] = true
+			out = append(out, p)
+		}
+	}
+	return out
 }
