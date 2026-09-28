@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/hiway-media/gpuledger/internal/findings"
+	"github.com/hiway-media/gpuledger/internal/fleet"
 	"github.com/hiway-media/gpuledger/internal/history"
 	"github.com/hiway-media/gpuledger/internal/ledger"
 )
@@ -149,6 +150,50 @@ func Render(l ledger.Ledger, fs []findings.Finding, codes []findings.Code, c *hi
 			kind = "gauge"
 		}
 		fmt.Fprintf(&b, "# HELP %s %s\n# TYPE %s %s\n", f.name, f.help, f.name, kind)
+		for _, s := range f.samples {
+			b.WriteString(s + "\n")
+		}
+	}
+	return b.String()
+}
+
+// Fleet renders fleet serve's /metrics: the cluster's totals, one set of series for the
+// whole fleet, so a dashboard needs no sum over nodes that may be missing.
+func Fleet(s fleet.Summary, fs []findings.Finding, codes []findings.Code) string {
+	fam := func(name, help string) *family { return &family{name: name, help: help} }
+	up := fam("gpuledger_fleet_up", "1 when the nodes were discovered and at least one was read.")
+	nodes := fam("gpuledger_fleet_nodes", "Nodes read and nodes unreachable at the last poll.")
+	gpus := fam("gpuledger_fleet_gpus", "GPUs across the fleet in each state.")
+	jobs := fam("gpuledger_fleet_job_gpus", "GPUs each job was reserved across the fleet, and of those it holds.")
+	fcount := fam("gpuledger_fleet_findings", "Findings of each code across the fleet at the last poll.")
+	read := len(s.Nodes) - s.Total.Unreachable
+	upv := 0
+	if read > 0 {
+		upv = 1
+	}
+	up.add("", upv)
+	nodes.add(labels("state", "read"), read)
+	nodes.add(labels("state", "unreachable"), s.Total.Unreachable)
+	for _, st := range []struct {
+		name string
+		n    int
+	}{{"held", s.Total.Held}, {"reserved-idle", s.Total.ReservedIdle}, {"unaccounted", s.Total.Unaccounted}, {"free", s.Total.Free}} {
+		gpus.add(labels("state", st.name), st.n)
+	}
+	for _, j := range s.Jobs {
+		jobs.add(labels("namespace", j.Namespace, "nomad_job", j.Job, "use", "reserved"), j.Reserved)
+		jobs.add(labels("namespace", j.Namespace, "nomad_job", j.Job, "use", "held"), j.Held)
+	}
+	n := map[string]int{}
+	for _, f := range fs {
+		n[f.Code]++
+	}
+	for _, c := range codes {
+		fcount.add(labels("code", c.Code, "level", string(c.Level)), n[c.Code])
+	}
+	var b strings.Builder
+	for _, f := range []*family{up, nodes, gpus, jobs, fcount} {
+		fmt.Fprintf(&b, "# HELP %s %s\n# TYPE %s gauge\n", f.name, f.help, f.name)
 		for _, s := range f.samples {
 			b.WriteString(s + "\n")
 		}

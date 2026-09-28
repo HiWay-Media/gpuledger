@@ -545,3 +545,55 @@ func TestReportCommand(t *testing.T) {
 		t.Fatal("Prometheus down: exit non-zero")
 	}
 }
+
+func TestFleetServe(t *testing.T) {
+	bin := build(t)
+	docker, nomadURL := fakes(t)
+	root, _ := filepath.Abs("../../testdata")
+	var addrs []string
+	for _, node := range []string{"gpud", "gpue"} {
+		addr := freeAddr(t)
+		cmd := exec.Command(bin, "serve", "--listen", addr, "--nvidia-smi", filepath.Join(root, "fake-nvidia-smi.sh"), "--proc", filepath.Join(root, "proc"), "--docker", docker, "--nomad-addr", nomadURL, "--node", node)
+		if err := cmd.Start(); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { cmd.Process.Kill() })
+		waitFor(t, "http://"+addr+"/healthz")
+		addrs = append(addrs, addr)
+	}
+	listen := freeAddr(t)
+	fs := exec.Command(bin, "fleet", "serve", "--listen", listen, "--interval", "1s", "--targets", strings.Join(append(addrs, "127.0.0.1:9"), ","))
+	if err := fs.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { fs.Process.Kill() })
+	waitFor(t, "http://"+listen+"/healthz")
+	get := func(path string) (int, string, http.Header) {
+		res, err := http.Get("http://" + listen + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		b, _ := io.ReadAll(res.Body)
+		return res.StatusCode, string(b), res.Header
+	}
+	code, page, hd := get("/")
+	if code != 200 || !strings.Contains(page, `<a href="http://`+addrs[0]+`/">gpud</a>`) || !strings.Contains(page, "1 unreachable") || !strings.Contains(page, "tngrm-video-worker-gpud") || hd.Get("Content-Security-Policy") == "" {
+		t.Fatalf("fleet page %d:\n%s", code, page)
+	}
+	if code, js, _ := get("/fleet"); code != 200 || !strings.Contains(js, `"schema":1`) || !strings.Contains(js, `"unreachable":1`) || !strings.Contains(js, `"worst":"ERROR"`) {
+		t.Fatalf("/fleet %d %s", code, js)
+	}
+	if code, m, _ := get("/metrics"); code != 200 || !strings.Contains(m, `gpuledger_fleet_nodes{state="read"} 2`) || !strings.Contains(m, `gpuledger_fleet_gpus{state="unaccounted"} 2`) || !strings.Contains(m, "gpuledger_fleet_up 1") {
+		t.Fatalf("/metrics %d %s", code, m)
+	}
+	if code, _, _ := get("/healthz"); code != 200 {
+		t.Fatalf("one node down of three is a finding, not an unhealthy fleet view: %d", code)
+	}
+	if res, _ := http.Post("http://"+listen+"/", "text/plain", nil); res == nil || res.StatusCode != 405 {
+		t.Fatal("POST must be refused")
+	}
+	if _, o, err := parse([]string{"fleet", "serve", "--targets", "a:1"}); err != nil || o.listen != ":9878" {
+		t.Fatalf("fleet serve's own default port, beside a node's serve: %v %q", err, o.listen)
+	}
+}
