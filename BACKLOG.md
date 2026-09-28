@@ -173,14 +173,14 @@ waste a scheduling or budget decision needs — and for each node the hours of c
 nobody used. Counters in `/metrics` so Prometheus keeps the history, a `report` that
 reads it back, and every number checked against a real Prometheus in the Nomad matrix.
 
-- [ ] **GL-29 — State counters**: `gpuledger_gpu_state_seconds_total{state}`, seconds each
+- [x] **GL-29 — State counters**: `gpuledger_gpu_state_seconds_total{state}`, seconds each
   GPU has spent in each state, kept in the `--history` file so a restart does not reset
   them; a gap over three intervals is counted as no state rather than guessed.
-  <!-- gl: prio=high size=M labels=ledger,tests -->
-- [ ] **GL-30 — GPU-seconds per job**: `gpuledger_job_gpu_seconds_total{namespace,nomad_job,use}`
+  <!-- gl: prio=high size=M labels=ledger,tests ver=main -->
+- [x] **GL-30 — GPU-seconds per job**: `gpuledger_job_gpu_seconds_total{namespace,nomad_job,use}`
   with `use` held or idle — reserved and in use, reserved and not — so
   `increase(…[7d])` is each job's GPU-hours and its waste. Labels carry the job, never a
-  tenant. <!-- gl: prio=high size=M labels=ledger,tests -->
+  tenant. <!-- gl: prio=high size=M labels=ledger,tests ver=main -->
 - [ ] **GL-31 — `gpuledger report`**: reads the counters back from Prometheus
   (`--prometheus URL`, `--since 7d`) and prints per job GPU-hours reserved, held, idle
   and the idle share, and per node the free GPU-hours; `--json` under the JSON contract.

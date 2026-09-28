@@ -25,8 +25,10 @@ internal/nomad/              agent self → node id → node allocations → GPU
 internal/ledger/             the pure join: Entry per GPU with Reservations, Tenants and State (Classify:
                              free|reserved-idle|held|unaccounted); Kind nomad|docker|host
 internal/findings/           Policy, Evaluate (codes below), Worst, ExitCode
-internal/history/            per-GPU state and since when; Observe skips partial ledgers, a gap > MaxGap
-                             restarts the clock; Save is tmp + rename; only serve writes it
+internal/history/            per-GPU state and since when, seconds per state, GPU-seconds per job (held,
+                             idle); Observe skips partial ledgers, a gap > MaxGap restarts the clock and
+                             accrues nothing; an interval accrues to what was seen at its start; Save is
+                             tmp + rename; only serve writes it
 internal/fleet/              every node's /ledger (static targets or Consul health API), Summarise per node
                              and job, Findings with one policy; a node not read is a Node with Err
 internal/cards/               per-card NVENC engines and session caps from NVIDIA's support matrix, each with

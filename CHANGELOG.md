@@ -5,6 +5,13 @@ versions follow [SemVer](https://semver.org/). Items reference their `GL-n` back
 
 ## [Unreleased]
 
+### Added
+- Counters: `gpuledger_gpu_state_seconds_total{state}` per GPU (GL-29) and
+  `gpuledger_job_gpu_seconds_total{namespace,nomad_job,use}` per job, `use` `held` or
+  `idle` (GL-30) — GPU-hours and waste over any window with `increase()`. Kept in the
+  `--history` file across restarts; gaps and partial reads accrue nothing. The Nomad
+  matrix checks them through a real Prometheus on real reservations.
+
 ## [0.3.0] — 2026-09-26
 
 A hardened cluster: Nomad and Consul over mutual TLS, a workload identity in place of a

@@ -90,7 +90,9 @@ nomad job run -var version=$V \
 curl -s http://<node>:9877/metrics | grep gpuledger_gpu_tenants
 ```
 
-Metrics: `gpuledger_up`, `gpuledger_findings{code,level}`, `gpuledger_worst_level`, `gpuledger_gpu_info{model,bus}`, `_utilization_percent`,
+Metrics: `gpuledger_up`, `gpuledger_findings{code,level}`, `gpuledger_worst_level`,
+the counters `gpuledger_gpu_state_seconds_total{state}` and
+`gpuledger_job_gpu_seconds_total{namespace,nomad_job,use}`, `gpuledger_gpu_info{model,bus}`, `_utilization_percent`,
 `_memory_used_bytes`, `_memory_total_bytes`, `_temperature_celsius`, `_power_watts`,
 `_encoder_sessions`, `_thermal_margin_celsius`, `_thermal_slowdown`, `_tenants`,
 `_reservations`, `gpuledger_gpu_state{state}` and, with
@@ -165,6 +167,15 @@ the token is never on a command line — `--docker unix:///var/run/docker.sock`,
 `--encoder-max`, `--temp-max`, `--allow-unmanaged`, `--no-idle`, `--listen`, `--interval`,
 `--history`;
 for `fleet`, `--targets`, `--nomad-service`, `--nomad-namespace`, `--consul`, `--consul-service`, `--consul-token-env`, `--timeout`.
+
+**What it costs.** `serve` counts, as Prometheus counters, the seconds each GPU spends
+in each state — `gpuledger_gpu_state_seconds_total{state}` — and the GPU-seconds each
+job has had reserved, held by its allocation or left idle —
+`gpuledger_job_gpu_seconds_total{namespace,nomad_job,use}` with `use` `held` or `idle`.
+`increase(…[7d]) / 3600` is GPU-hours; `idle / (held + idle)` is a job's waste. The time
+between two refreshes belongs to what was seen at its start; a silence over three
+intervals, or a refresh where a source failed, is nobody's time. With `--history` the
+counters survive a restart.
 
 **Alerts and a dashboard**, for Prometheus and Grafana:
 [`deploy/prometheus/gpuledger.rules.yml`](deploy/prometheus/gpuledger.rules.yml) —
