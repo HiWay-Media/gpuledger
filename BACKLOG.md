@@ -186,7 +186,7 @@ reads it back, and every number checked against a real Prometheus in the Nomad m
   and the idle share, and per node the free GPU-hours; `--json` under the JSON contract.
   Tested in the matrix against the real Prometheus scraping real allocations.
   <!-- gl: prio=med size=M labels=enhancement,tests ver=main -->
-- [ ] **GL-32 — Waste in the dashboard and the rules**: panels for GPU-hours per job and
+- [x] **GL-32 — Waste in the dashboard and the rules**: panels for GPU-hours per job and
   the idle share; an info alert when a job leaves most of what it reserved idle over a
   day. Held to the metrics contract test and `promtool test rules` like the rest.
-  <!-- gl: prio=med size=S labels=docs,tests -->
+  <!-- gl: prio=med size=S labels=docs,tests ver=main -->

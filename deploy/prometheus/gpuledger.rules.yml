@@ -60,3 +60,18 @@ groups:
         annotations:
           summary: "GPU {{ $labels.gpu }} on {{ $labels.node }} is clocking itself down"
           description: "Hardware or software thermal slowdown active for 5 minutes."
+
+      # What the GPUs cost: a job that reserved at least a GPU-hour over the last day and
+      # left more than half of it idle. From the GL-30 counters; info, not a page.
+      - alert: GPULedgerJobMostlyIdle
+        expr: |
+          (
+            sum by (namespace, nomad_job) (increase(gpuledger_job_gpu_seconds_total{use="idle"}[1d]))
+            / sum by (namespace, nomad_job) (increase(gpuledger_job_gpu_seconds_total[1d]))
+          ) > 0.5
+          and sum by (namespace, nomad_job) (increase(gpuledger_job_gpu_seconds_total[1d])) > 3600
+        labels:
+          severity: info
+        annotations:
+          summary: "{{ $labels.namespace }}/{{ $labels.nomad_job }} left most of its reserved GPU time idle over the last day"
+          description: "{{ $value | humanizePercentage }} of the GPU time it reserved was idle. `gpuledger report --since 1d` has the detail."

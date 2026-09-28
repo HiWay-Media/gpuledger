@@ -54,7 +54,7 @@ jobs:
           jq '{dashboard: ., overwrite: true}' deploy/grafana/gpuledger.json > /tmp/import.json
           curl -fsS -H 'Content-Type: application/json' -X POST http://127.0.0.1:3000/api/dashboards/db --data @/tmp/import.json | tee /tmp/out.json
           jq -e '.status == "success"' /tmp/out.json
-          curl -fsS http://127.0.0.1:3000/api/dashboards/uid/gpuledger | jq -e '.dashboard.panels | length == 12'
+          curl -fsS http://127.0.0.1:3000/api/dashboards/uid/gpuledger | jq -e '.dashboard.panels | length == 15'
 
   # BACKLOG.md is the single source of truth; ROADMAP.md is generated from it.
   backlog:
