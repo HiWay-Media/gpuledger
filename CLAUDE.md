@@ -17,7 +17,7 @@ artifacts sit beside it.
 ## Layout
 
 ```
-cmd/gpuledger/main.go        the CLI: ls · check · serve · fleet ls|check · version; flags; collect() joins the sources
+cmd/gpuledger/main.go        the CLI: ls · check · serve · fleet ls|check · report · version; flags; collect() joins the sources
 internal/nvidia/             nvidia-smi runner and CSV parsers (GPUQuery, ProcessQuery are the exact field lists)
 internal/containers/         cgroup → container id (docker, containerd, libpod); Engine API client for Docker
                              and Podman (unix socket or http); Nomad labels, else the alloc id from the name
@@ -37,6 +37,8 @@ internal/tlsfiles/           CA file or path, client certificate and key, server
                              Nomad and Consul alike; errors name the --nomad- or --consul- flag
 internal/testcerts/          a throwaway CA, server and client certificate for tests (unit and matrix);
                              imported by tests only
+internal/report/             gpuledger report: two increase() queries over --since against Prometheus,
+                             GPU-hours per job (reserved, held, idle, share) and per node and state
 internal/metrics/            Prometheus text exposition, hand-written
 internal/render/             the table and the findings text
 internal/version/            Version, set by -ldflags at release

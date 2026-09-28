@@ -181,11 +181,11 @@ reads it back, and every number checked against a real Prometheus in the Nomad m
   with `use` held or idle — reserved and in use, reserved and not — so
   `increase(…[7d])` is each job's GPU-hours and its waste. Labels carry the job, never a
   tenant. <!-- gl: prio=high size=M labels=ledger,tests ver=main -->
-- [ ] **GL-31 — `gpuledger report`**: reads the counters back from Prometheus
+- [x] **GL-31 — `gpuledger report`**: reads the counters back from Prometheus
   (`--prometheus URL`, `--since 7d`) and prints per job GPU-hours reserved, held, idle
   and the idle share, and per node the free GPU-hours; `--json` under the JSON contract.
   Tested in the matrix against the real Prometheus scraping real allocations.
-  <!-- gl: prio=med size=M labels=enhancement,tests -->
+  <!-- gl: prio=med size=M labels=enhancement,tests ver=main -->
 - [ ] **GL-32 — Waste in the dashboard and the rules**: panels for GPU-hours per job and
   the idle share; an info alert when a job leaves most of what it reserved idle over a
   day. Held to the metrics contract test and `promtool test rules` like the rest.

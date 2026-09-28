@@ -618,7 +618,7 @@ func metrics(t *testing.T, a *agent, bin, smi, token, promtool string) {
 	}
 
 	if promBin := os.Getenv("PROMETHEUS_BIN"); promBin != "" {
-		dashboardAgainstPrometheus(t, promBin, listen, labels)
+		dashboardAgainstPrometheus(t, bin, promBin, listen, labels)
 	}
 
 	viaNomadServices(t, a, bin, listen, token)
@@ -781,7 +781,7 @@ func TestPodmanAgainstARealNomad(t *testing.T) {
 // ones the fake driver cannot feed must return data, and the Nomad job must survive
 // ingestion under its own label (Prometheus renames a metric label called job).
 // labels is false on Nomad 1.0, where no job name reaches the container at all.
-func dashboardAgainstPrometheus(t *testing.T, promBin, listen string, labels bool) {
+func dashboardAgainstPrometheus(t *testing.T, bin, promBin, listen string, labels bool) {
 	dir := t.TempDir()
 	port := freePort(t)
 	cfg := fmt.Sprintf("global:\n  scrape_interval: 1s\nscrape_configs:\n  - job_name: gpuledger\n    static_configs:\n      - targets: [%q]\n", listen)
@@ -855,6 +855,40 @@ func dashboardAgainstPrometheus(t *testing.T, promBin, listen string, labels boo
 		_, c, _ := query(`gpuledger_job_gpu_seconds_total{nomad_job="enc",use="idle"} > 0`)
 		return a == 1 && b == 1 && c == 0, fmt.Sprint(a, b, c)
 	})
+	// gpuledger report reads the same counters back: enc wasted nothing, idle all of it.
+	out, err := exec.Command(bin, "report", "--json", "--since", "10m", "--prometheus", fmt.Sprintf("http://127.0.0.1:%d", port)).Output()
+	if err != nil {
+		t.Fatalf("report: %v %s", err, out)
+	}
+	var rep struct {
+		Jobs []struct {
+			Namespace, Job string
+			HeldHours      float64
+			IdleShare      float64
+		}
+		Nodes []struct {
+			Node  string
+			Hours map[string]float64
+		}
+	}
+	if err := json.Unmarshal(out, &rep); err != nil {
+		t.Fatalf("%v %s", err, out)
+	}
+	share := map[string]float64{}
+	for _, j := range rep.Jobs {
+		share[j.Namespace+"/"+j.Job] = j.IdleShare
+	}
+	if s, ok := share["default/enc"]; !ok || s != 0 {
+		t.Errorf("enc held what it reserved: %s", out)
+	}
+	if s, ok := share["video/idle"]; !ok || s != 1 {
+		t.Errorf("idle left all of it idle: %s", out)
+	}
+	if len(rep.Nodes) != 1 || rep.Nodes[0].Node != "it" || rep.Nodes[0].Hours["reserved-idle"] <= 0 {
+		t.Errorf("the node's hours: %s", out)
+	}
+	t.Logf("report: %s", bytes.TrimSpace(out))
+
 	if _, n, _ := query(`gpuledger_findings{code="unreserved-tenant"} > 0`); n == 0 {
 		t.Error("GPULedgerUnreservedTenant's expression must match the unreserved tenant the test plants")
 	}

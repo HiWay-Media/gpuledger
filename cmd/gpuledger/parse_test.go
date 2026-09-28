@@ -142,3 +142,18 @@ func TestConsulTLSFlagsDefaultToTheCLIsVariables(t *testing.T) {
 		t.Fatalf("%v %+v", err, o.consulTLS)
 	}
 }
+
+func TestParseReport(t *testing.T) {
+	t.Setenv("PROMETHEUS_URL", "")
+	if _, _, err := parse([]string{"report"}); err == nil {
+		t.Fatal("report needs --prometheus")
+	}
+	t.Setenv("PROMETHEUS_URL", "http://prom:9090")
+	cmd, o, err := parse([]string{"report", "--since", "24h"})
+	if err != nil || cmd != "report" || o.prometheus != "http://prom:9090" || o.since != "24h" || o.promTokenEnv != "" {
+		t.Fatalf("%v %+v", err, o)
+	}
+	if _, o, _ = parse([]string{"report"}); o.since != "7d" {
+		t.Fatalf("default window: %q", o.since)
+	}
+}

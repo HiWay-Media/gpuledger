@@ -521,3 +521,27 @@ func TestServeCountsGPUSeconds(t *testing.T) {
 		t.Fatalf("a restart continues the counter: %v then %v", value(first, held), value(second, held))
 	}
 }
+
+func TestReportCommand(t *testing.T) {
+	bin := build(t)
+	prom := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Query().Get("query"), "job_gpu") {
+			w.Write([]byte(`{"status":"success","data":{"result":[{"metric":{"namespace":"video","nomad_job":"worker","use":"idle"},"value":[1,"7200"]}]}}`))
+			return
+		}
+		w.Write([]byte(`{"status":"success","data":{"result":[{"metric":{"node":"gpud","state":"free"},"value":[1,"3600"]}]}}`))
+	}))
+	defer prom.Close()
+	out, err := exec.Command(bin, "report", "--prometheus", prom.URL, "--since", "1d").Output()
+	if err != nil || !strings.Contains(string(out), "video/worker") || !strings.Contains(string(out), "100%") {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	js, _ := exec.Command(bin, "report", "--json", "--prometheus", prom.URL).Output()
+	if !strings.Contains(string(js), `"schema":1`) || !strings.Contains(string(js), `"idleShare":1`) || !strings.Contains(string(js), `"since":"7d"`) {
+		t.Fatalf("%s", js)
+	}
+	cmd := exec.Command(bin, "report", "--prometheus", "http://127.0.0.1:9")
+	if err := cmd.Run(); err == nil {
+		t.Fatal("Prometheus down: exit non-zero")
+	}
+}
