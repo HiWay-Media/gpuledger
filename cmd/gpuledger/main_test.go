@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -469,5 +470,54 @@ func TestNomadNodeIDSkipsAgentSelf(t *testing.T) {
 	out, _ = exec.Command(bin, base...).Output()
 	if !strings.Contains(string(out), "HTTP 500") {
 		t.Fatalf("without it, the agent's 500 is the finding: %s", out)
+	}
+}
+
+// serve counts GPU-seconds per state and per job, and a restart with the same
+// --history continues from where it stopped.
+func TestServeCountsGPUSeconds(t *testing.T) {
+	bin := build(t)
+	docker, nomadURL := fakes(t)
+	root, _ := filepath.Abs("../../testdata")
+	hist := filepath.Join(t.TempDir(), "history.json")
+	value := func(body, series string) float64 {
+		for _, line := range strings.Split(body, "\n") {
+			if strings.HasPrefix(line, series+" ") {
+				v, _ := strconv.ParseFloat(strings.TrimPrefix(line, series+" "), 64)
+				return v
+			}
+		}
+		return -1
+	}
+	held := `gpuledger_job_gpu_seconds_total{node="gpud",namespace="default",nomad_job="gpu-gpud-restreamer",use="held"}`
+	idle := `gpuledger_job_gpu_seconds_total{node="gpud",namespace="default",nomad_job="tngrm-video-worker-gpud",use="idle"}`
+	run := func() string {
+		addr := freeAddr(t)
+		cmd := exec.Command(bin, "serve", "--listen", addr, "--interval", "1s", "--history", hist, "--nvidia-smi", filepath.Join(root, "fake-nvidia-smi.sh"), "--proc", filepath.Join(root, "proc"), "--docker", docker, "--nomad-addr", nomadURL, "--node", "gpud")
+		if err := cmd.Start(); err != nil {
+			t.Fatal(err)
+		}
+		defer func() { cmd.Process.Kill(); cmd.Wait() }()
+		time.Sleep(3500 * time.Millisecond)
+		res, err := http.Get("http://" + addr + "/metrics")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		b, _ := io.ReadAll(res.Body)
+		return string(b)
+	}
+	first := run()
+	if value(first, held) < 2 || value(first, idle) < 2 || value(first, `gpuledger_gpu_state_seconds_total{node="gpud",gpu="1",uuid="GPU-ac81e44d-1234-4d1e-9d53-abcdefabcdef",state="reserved-idle"}`) < 2 {
+		t.Fatalf("after ~3 s of 1 s refreshes:\n%s", first)
+	}
+	// The restreamer's GPU also has the unmanaged encoder: its GPU is unaccounted, yet the
+	// restreamer's own reservation is held.
+	if value(first, `gpuledger_gpu_state_seconds_total{node="gpud",gpu="0",uuid="GPU-fef8089b-4a2c-4d1e-9d53-1f2b3c4d5e6f",state="held"}`) != 0 {
+		t.Fatalf("gpu0 was never held — its tenants include the unmanaged encoder:\n%s", first)
+	}
+	second := run()
+	if value(second, held) <= value(first, held) {
+		t.Fatalf("a restart continues the counter: %v then %v", value(first, held), value(second, held))
 	}
 }

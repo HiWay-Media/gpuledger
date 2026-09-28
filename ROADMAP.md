@@ -4,7 +4,7 @@
 
 > This page is **generated** from [BACKLOG.md](BACKLOG.md), the single source of truth for planned work. Regenerate it with `node scripts/backlog.mjs roadmap` after editing the backlog — CI fails when the two disagree.
 
-**32 items · 24 shipped · 8 open · 5 milestones.**
+**32 items · 26 shipped · 6 open · 5 milestones.**
 
 ## At a glance
 
@@ -14,7 +14,7 @@
 | **v0.2.0 — The whole cluster, watched** | shipped | `##########` 100% | 0 | 8 |
 | **v0.3.0 — A hardened cluster** | shipped | `##########` 100% | 0 | 5 |
 | **v0.4.0 — Told by the hardware** | now | `..........` 0% | 4 | 0 |
-| **v0.5.0 — What the GPUs cost** | next | `..........` 0% | 4 | 0 |
+| **v0.5.0 — What the GPUs cost** | next | `#####.....` 50% | 2 | 2 |
 
 ## v0.1.0 — One node, told the truth
 
@@ -58,7 +58,7 @@
 
 ## v0.5.0 — What the GPUs cost
 
-- [ ] **GL-29** — State counters · high · M · ledger, tests
-- [ ] **GL-30** — GPU-seconds per job · high · M · ledger, tests
+- [x] **GL-29** — State counters · high · M · ledger, tests · `main`
+- [x] **GL-30** — GPU-seconds per job · high · M · ledger, tests · `main`
 - [ ] **GL-31** — `gpuledger report` · med · M · enhancement, tests
 - [ ] **GL-32** — Waste in the dashboard and the rules · med · S · docs, tests

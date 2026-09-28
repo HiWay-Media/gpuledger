@@ -846,6 +846,15 @@ func dashboardAgainstPrometheus(t *testing.T, promBin, listen string, labels boo
 			t.Errorf("rule %s: %v %s", m[1], err, st)
 		}
 	}
+	// GPU-seconds per job, from real reservations: enc holds its GPU, idle (in the second
+	// namespace) leaves its reservation idle. From Nomad's allocations, not labels, so
+	// Nomad 1.0 has them too.
+	eventually(t, "GPU-seconds per job in Prometheus", 30*time.Second, func() (bool, string) {
+		_, a, _ := query(`gpuledger_job_gpu_seconds_total{namespace="default",nomad_job="enc",use="held"} > 0`)
+		_, b, _ := query(`gpuledger_job_gpu_seconds_total{namespace="video",nomad_job="idle",use="idle"} > 0`)
+		_, c, _ := query(`gpuledger_job_gpu_seconds_total{nomad_job="enc",use="idle"} > 0`)
+		return a == 1 && b == 1 && c == 0, fmt.Sprint(a, b, c)
+	})
 	if _, n, _ := query(`gpuledger_findings{code="unreserved-tenant"} > 0`); n == 0 {
 		t.Error("GPULedgerUnreservedTenant's expression must match the unreserved tenant the test plants")
 	}

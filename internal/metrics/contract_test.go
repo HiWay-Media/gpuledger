@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/hiway-media/gpuledger/internal/findings"
+	"github.com/hiway-media/gpuledger/internal/history"
 	"github.com/hiway-media/gpuledger/internal/ledger"
 	"github.com/hiway-media/gpuledger/internal/nomad"
 	"github.com/hiway-media/gpuledger/internal/nvidia"
@@ -23,7 +24,8 @@ func everything() string {
 		Tenants:      []ledger.Tenant{{Kind: ledger.KindNomad, Container: "c", ContainerID: "id", JobName: "j", TaskName: "t", AllocID: "a", Namespace: "default", Reserved: true}},
 		State:        ledger.StateReservedIdle, StateSince: &since,
 	}}}
-	return Render(l, findings.Evaluate(l, findings.Default), findings.Codes(findings.Default))
+	c := &history.Counters{GPUs: []history.GPUSeconds{{Node: "gpud", UUID: "GPU-a", State: ledger.StateHeld, Seconds: 1}}, Jobs: []history.JobSeconds{{Namespace: "default", Job: "j", Held: 1}}}
+	return Render(l, findings.Evaluate(l, findings.Default), findings.Codes(findings.Default), c)
 }
 
 var (

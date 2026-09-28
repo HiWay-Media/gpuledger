@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/hiway-media/gpuledger/internal/ledger"
+	"github.com/hiway-media/gpuledger/internal/nomad"
 	"github.com/hiway-media/gpuledger/internal/nvidia"
 )
 
@@ -119,5 +120,92 @@ func TestTheFileCarriesTheSchema(t *testing.T) {
 	b, _ := os.ReadFile(path)
 	if !strings.Contains(string(b), `"schema": 1`) {
 		t.Fatalf("%s", b)
+	}
+}
+
+// reserved is one GPU reserved by a job, held by its allocation or not.
+func reserved(at time.Time, held bool) ledger.Ledger {
+	e := ledger.Entry{GPU: nvidia.GPU{Index: 0, UUID: "GPU-a"}, Reservations: []nomad.Reservation{{AllocID: "a1", JobID: "enc", Namespace: "video"}}}
+	if held {
+		e.Tenants = []ledger.Tenant{{Kind: ledger.KindNomad, AllocID: "a1", Reserved: true, AllocVisible: true}}
+	}
+	e.State = ledger.Classify(e)
+	return ledger.Ledger{Node: "gpud", At: at, NomadRead: true, Entries: []ledger.Entry{e}}
+}
+
+// The time between two observations belongs to the state seen at its start.
+func TestStateSecondsAccrueToTheStateSeen(t *testing.T) {
+	s := New(time.Minute)
+	for i, st := range []ledger.State{ledger.StateHeld, ledger.StateHeld, ledger.StateFree, ledger.StateFree} {
+		s.Observe(snap(t0.Add(time.Duration(i)*15*time.Second), st))
+	}
+	c := s.Counters()
+	got := map[ledger.State]float64{}
+	for _, g := range c.GPUs {
+		if g.UUID == "GPU-a" {
+			got[g.State] = g.Seconds
+		}
+	}
+	if got[ledger.StateHeld] != 30 || got[ledger.StateFree] != 15 || got[ledger.StateReservedIdle] != 0 || got[ledger.StateUnaccounted] != 0 {
+		t.Fatalf("%v", got)
+	}
+	if n := len(c.GPUs); n != 4 {
+		t.Fatalf("every state has a counter, 0 when never seen: %d", n)
+	}
+}
+
+// A gap, or a partial read, is nobody's time: it is not added to any state.
+func TestGapsAndPartialReadsAccrueNothing(t *testing.T) {
+	s := New(time.Minute)
+	s.Observe(snap(t0, ledger.StateHeld))
+	s.Observe(snap(t0.Add(10*time.Minute), ledger.StateHeld)) // serve was down
+	bad := snap(t0.Add(10*time.Minute+15*time.Second), ledger.StateHeld)
+	bad.Errors = []string{"nomad: down"}
+	s.Observe(bad)
+	s.Observe(snap(t0.Add(10*time.Minute+30*time.Second), ledger.StateHeld))
+	for _, g := range s.Counters().GPUs {
+		if g.State == ledger.StateHeld && g.Seconds != 30 {
+			t.Fatalf("only the 30 s after the gap, across one partial read within MaxGap: %v", g.Seconds)
+		}
+	}
+}
+
+func TestJobSecondsHeldAndIdle(t *testing.T) {
+	s := New(time.Minute)
+	for i, held := range []bool{true, true, false, false} {
+		s.Observe(reserved(t0.Add(time.Duration(i)*15*time.Second), held))
+	}
+	c := s.Counters()
+	if len(c.Jobs) != 1 || c.Jobs[0] != (JobSeconds{Namespace: "video", Job: "enc", Held: 30, Idle: 15}) {
+		t.Fatalf("%+v", c.Jobs)
+	}
+}
+
+func TestCountersSurviveSaveAndLoad(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "h.json")
+	s := New(time.Minute)
+	s.Observe(reserved(t0, true))
+	s.Observe(reserved(t0.Add(15*time.Second), true))
+	s.Save(path)
+	r, err := Load(path, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.Observe(reserved(t0.Add(30*time.Second), true))
+	if j := r.Counters().Jobs; len(j) != 1 || j[0].Held != 30 {
+		t.Fatalf("a restart continues the counters: %+v", j)
+	}
+}
+
+// A job that has reserved nothing for Retain is forgotten, as a GPU is: dispatched and
+// batch jobs would otherwise grow the file for ever.
+func TestJobsThatReserveNothingAreForgotten(t *testing.T) {
+	s := New(time.Minute)
+	s.Observe(reserved(t0, true))
+	s.Observe(reserved(t0.Add(15*time.Second), true))
+	later := snap(t0.Add(Retain+time.Hour), ledger.StateFree)
+	s.Observe(later)
+	if j := s.Counters().Jobs; len(j) != 0 {
+		t.Fatalf("%+v", j)
 	}
 }

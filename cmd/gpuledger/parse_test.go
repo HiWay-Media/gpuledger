@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/hiway-media/gpuledger/internal/findings"
+	"github.com/hiway-media/gpuledger/internal/history"
 	"github.com/hiway-media/gpuledger/internal/ledger"
 	"github.com/hiway-media/gpuledger/internal/nvidia"
 )
@@ -47,7 +48,7 @@ func TestHandlers(t *testing.T) {
 	l := ledger.Ledger{Node: "gpud", Entries: []ledger.Entry{{GPU: nvidia.GPU{Index: 0, UUID: "GPU-a", Model: "L4"}}}}
 	get := func(path string) (int, string, string) {
 		rec := httptest.NewRecorder()
-		newMux(func() ledger.Ledger { return l }, findings.Default).ServeHTTP(rec, httptest.NewRequest("GET", path, nil))
+		newMux(func() ledger.Ledger { return l }, findings.Default, func() *history.Counters { return nil }).ServeHTTP(rec, httptest.NewRequest("GET", path, nil))
 		b, _ := io.ReadAll(rec.Body)
 		return rec.Code, rec.Header().Get("Content-Type"), string(b)
 	}
