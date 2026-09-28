@@ -4,7 +4,7 @@
 
 > This page is **generated** from [BACKLOG.md](BACKLOG.md), the single source of truth for planned work. Regenerate it with `node scripts/backlog.mjs roadmap` after editing the backlog — CI fails when the two disagree.
 
-**32 items · 28 shipped · 4 open · 5 milestones.**
+**36 items · 28 shipped · 8 open · 6 milestones.**
 
 ## At a glance
 
@@ -15,6 +15,7 @@
 | **v0.3.0 — A hardened cluster** | shipped | `##########` 100% | 0 | 5 |
 | **v0.4.0 — What the GPUs cost** | shipped | `##########` 100% | 0 | 4 |
 | **v0.5.0 — Told by the hardware** | now | `..........` 0% | 4 | 0 |
+| **v0.6.0 — A page to look at** | next | `..........` 0% | 4 | 0 |
 
 ## v0.1.0 — One node, told the truth
 
@@ -62,3 +63,10 @@
 - [ ] **GL-11** — Encoder-only sessions · med · M · collector
 - [ ] **GL-1** — Run QRSPI on the brief: Questions → Research → Spec → Plan · high · L · ledger
 - [ ] **GL-23** — containerd · low · M · collector
+
+## v0.6.0 — A page to look at
+
+- [ ] **GL-33** — The node's page · high · M · enhancement, tests
+- [ ] **GL-34** — `fleet serve` · high · M · enhancement, tests
+- [ ] **GL-35** — A job for the fleet view · med · S · release, tests
+- [ ] **GL-36** — Safe to expose · high · S · tests

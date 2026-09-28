@@ -190,3 +190,26 @@ QRSPI run settles with those answers in hand.
   info` as a read-only runner (the nvidia-smi pattern) or a dependency with its reason in
   `CLAUDE.md`. Needs the driver's labels and cgroup layout observed first, as GL-16 did
   for Podman. <!-- gl: prio=low size=M labels=collector -->
+
+## v0.6.0 — A page to look at <!-- ms: phase=next -->
+
+Today seeing the ledger without a terminal takes Prometheus and Grafana. This gives
+gpuledger a page of its own: `serve` shows its node, `fleet serve` shows the cluster
+from one process, both refresh by themselves, and both keep the rules — read-only,
+no dependency, no asset from anywhere else, nothing printed that could carry a secret.
+
+- [ ] **GL-33 — The node's page**: `serve` answers `/` with the ledger table, the findings
+  worst first and, with `--history`, since when — plain HTML and CSS rendered on the
+  server from the same data as `/ledger`, light and dark, refreshing itself without a
+  script. <!-- gl: prio=high size=M labels=enhancement,tests -->
+- [ ] **GL-34 — `fleet serve`**: one process that polls every node's `/ledger` (the
+  `fleet` discovery: `--targets`, `--nomad-service`, Consul) and serves `/fleet` JSON, a
+  fleet page, and `/metrics` with the cluster's totals by state; an unreachable node is
+  a row and a finding, as in `fleet ls`. <!-- gl: prio=high size=M labels=enhancement,tests -->
+- [ ] **GL-35 — A job for the fleet view**: `deploy/nomad/gpuledger-fleet.nomad.hcl`, one
+  service instance with Nomad or Consul discovery, validated in the matrix and run there
+  against the real node. <!-- gl: prio=med size=S labels=release,tests -->
+- [ ] **GL-36 — Safe to expose**: every endpoint GET and HEAD only (405 otherwise), a
+  strict Content-Security-Policy with no inline script or remote asset, `nosniff`, no
+  referrer, HTML-escaped everywhere; tests that a container name full of markup renders
+  as text. <!-- gl: prio=high size=S labels=tests -->
