@@ -17,7 +17,7 @@ artifacts sit beside it.
 ## Layout
 
 ```
-cmd/gpuledger/main.go        the CLI: ls · check · serve · fleet ls|check · report · version; flags; collect() joins the sources
+cmd/gpuledger/main.go        the CLI: ls · check · serve · fleet ls|check|serve · report · version; flags; collect() joins the sources
 internal/nvidia/             nvidia-smi runner and CSV parsers (GPUQuery, ProcessQuery are the exact field lists)
 internal/containers/         cgroup → container id (docker, containerd, libpod); Engine API client for Docker
                              and Podman (unix socket or http); Nomad labels, else the alloc id from the name
@@ -52,7 +52,8 @@ deploy/prometheus/           alert rules on gpuledger_findings and the state gau
 deploy/grafana/              the dashboard; internal/metrics/contract_test.go checks every metric and label
                              the rules and the dashboard name against what Render exposes
 deploy/nomad/                the system job specs — gpuledger.nomad.hcl (token, any version) and
-                             gpuledger.wi.nomad.hcl (workload identity, 1.5+) — (raw_exec, artifact from the release) and the ACL
+                             gpuledger.wi.nomad.hcl (workload identity, 1.5+) — (raw_exec, artifact from the release),
+                             gpuledger-fleet.nomad.hcl (fleet serve, one instance; run in the matrix) and the ACL
                              policy file the integration test gives gpuledger's token
 scripts/check-repo.sh        the repo's invariants (VERSION ↔ CHANGELOG, README statements, job spec); CI runs it
 scripts/backlog.mjs          lint · roadmap · check · issues — Node, tooling only (package.json is private)

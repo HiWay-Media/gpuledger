@@ -202,13 +202,13 @@ no dependency, no asset from anywhere else, nothing printed that could carry a s
   worst first and, with `--history`, since when — plain HTML and CSS rendered on the
   server from the same data as `/ledger`, light and dark, refreshing itself without a
   script. <!-- gl: prio=high size=M labels=enhancement,tests ver=main -->
-- [ ] **GL-34 — `fleet serve`**: one process that polls every node's `/ledger` (the
+- [x] **GL-34 — `fleet serve`**: one process that polls every node's `/ledger` (the
   `fleet` discovery: `--targets`, `--nomad-service`, Consul) and serves `/fleet` JSON, a
   fleet page, and `/metrics` with the cluster's totals by state; an unreachable node is
-  a row and a finding, as in `fleet ls`. <!-- gl: prio=high size=M labels=enhancement,tests -->
-- [ ] **GL-35 — A job for the fleet view**: `deploy/nomad/gpuledger-fleet.nomad.hcl`, one
+  a row and a finding, as in `fleet ls`. <!-- gl: prio=high size=M labels=enhancement,tests ver=main -->
+- [x] **GL-35 — A job for the fleet view**: `deploy/nomad/gpuledger-fleet.nomad.hcl`, one
   service instance with Nomad or Consul discovery, validated in the matrix and run there
-  against the real node. <!-- gl: prio=med size=S labels=release,tests -->
+  against the real node. <!-- gl: prio=med size=S labels=release,tests ver=main -->
 - [x] **GL-36 — Safe to expose**: every endpoint GET and HEAD only (405 otherwise), a
   strict Content-Security-Policy with no inline script or remote asset, `nosniff`, no
   referrer, HTML-escaped everywhere; tests that a container name full of markup renders

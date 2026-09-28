@@ -17,6 +17,8 @@ for job in deploy/nomad/gpuledger.nomad.hcl deploy/nomad/gpuledger.wi.nomad.hcl;
   grep -q 'checksum *= *var.checksum' "$job" || fail "$job must verify the artifact's checksum"
   grep -q 'nomad-node-id' "$job" || fail "$job must pass --nomad-node-id"
 done
+grep -q 'checksum *= *var.checksum' deploy/nomad/gpuledger-fleet.nomad.hcl || fail "the fleet job must verify the artifact's checksum"
+grep -q '"fleet", "serve"' deploy/nomad/gpuledger-fleet.nomad.hcl || fail "the fleet job must run fleet serve"
 grep -q 'env *= *true' deploy/nomad/gpuledger.wi.nomad.hcl || fail "the workload identity job must set identity { env = true }"
 grep -q 'attest-build-provenance' .github/workflows/release.yml || fail "the release must attest its binaries"
 [ -x testdata/fake-nvidia-smi.sh ] || fail "testdata/fake-nvidia-smi.sh must be executable"

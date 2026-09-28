@@ -17,6 +17,7 @@ package integration
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
@@ -206,6 +207,11 @@ plugin "nomad-device-fake" {
   config {
     dir         = %q
     list_period = "1s"
+  }
+}
+plugin "raw_exec" {
+  config {
+    enabled = true
   }
 }
 %s
@@ -637,6 +643,7 @@ func metrics(t *testing.T, a *agent, bin, smi, token, promtool string) {
 	}
 
 	viaNomadServices(t, a, bin, listen, token)
+	fleetJob(t, a, bin, listen)
 
 	if consulBin := os.Getenv("CONSUL_BIN"); consulBin != "" {
 		viaConsul(t, bin, consulBin, listen)
@@ -1269,4 +1276,45 @@ func distinctPorts(t *testing.T, n int) []int {
 		}
 	}
 	return out
+}
+
+// fleetJob runs deploy/nomad/gpuledger-fleet.nomad.hcl as an operator would — nomad job
+// run with the version's checksum — with the binary of this commit served locally, and
+// waits for the fleet view, run by Nomad under raw_exec, to show the real node.
+func fleetJob(t *testing.T, a *agent, bin, listen string) {
+	b, err := os.ReadFile(bin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(b)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.Write(b) })}
+	go srv.Serve(ln)
+	defer srv.Close()
+	port := freePort(t)
+	run := exec.Command(os.Getenv("NOMAD_BIN"), "job", "run", "-detach",
+		"-var", "version=it", "-var", fmt.Sprintf("checksum=sha256:%x", sum),
+		"-var", "artifact_url=http://"+ln.Addr().String()+"/gpuledger",
+		"-var", `datacenters=["dc1"]`, "-var", fmt.Sprintf("port=%d", port),
+		"-var", fmt.Sprintf(`discovery=["--targets","%s"]`, listen),
+		"../deploy/nomad/gpuledger-fleet.nomad.hcl")
+	run.Env = append(os.Environ(), "NOMAD_ADDR="+a.addr, "NOMAD_TOKEN="+a.mgmt)
+	if out, err := run.CombinedOutput(); err != nil {
+		t.Fatalf("nomad job run deploy/nomad/gpuledger-fleet.nomad.hcl: %v\n%s", err, out)
+	}
+	defer a.do("DELETE", "/v1/job/gpuledger-fleet?purge=true", a.mgmt, nil, nil)
+	var body []byte
+	eventually(t, "the fleet view run by Nomad", 90*time.Second, func() (bool, string) {
+		res, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/fleet", port))
+		if err != nil {
+			return false, err.Error()
+		}
+		defer res.Body.Close()
+		body, _ = io.ReadAll(res.Body)
+		return res.StatusCode == 200 && bytes.Contains(body, []byte(`"node":"it"`)) && bytes.Contains(body, []byte(`"gpus":3`)), string(body)
+	})
+	t.Logf("fleet job: %s", bytes.TrimSpace(body)[:120])
 }

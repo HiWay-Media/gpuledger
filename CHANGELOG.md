@@ -6,6 +6,13 @@ versions follow [SemVer](https://semver.org/). Items reference their `GL-n` back
 ## [Unreleased]
 
 ### Added
+- `gpuledger fleet serve`: polls the fleet every `--interval` and serves its page (each
+  node linked to its own), `/fleet` JSON, `/metrics` with the cluster's totals
+  (`gpuledger_fleet_*`) and `/healthz`, behind the same GET-only, CSP headers; listens
+  on 9878 by default (GL-34).
+- `deploy/nomad/gpuledger-fleet.nomad.hcl`: fleet serve as one service instance,
+  discovery as a variable, checksum required. The Nomad matrix runs it with `nomad job
+  run` on every version, the binary of the commit served locally (GL-35).
 - The node's page: `serve` answers `/` with the GPUs, their state and since when, who
   reserved and who holds each, and the findings — server-rendered HTML, light and dark,
   refreshing every `--interval` without a script (GL-33).
