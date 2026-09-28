@@ -6,6 +6,11 @@ versions follow [SemVer](https://semver.org/). Items reference their `GL-n` back
 ## [Unreleased]
 
 ### Added
+- The cost in the dashboard and the rules: GPU-hours per job over the range, the idle
+  share per job, GPUs per state from the counters; `GPULedgerJobMostlyIdle` (info) when
+  a job with at least a GPU-hour reserved over a day left more than half of it idle.
+  Unit-tested with `promtool test rules`, a mutated threshold checked to fail; every
+  panel's query run against the real Prometheus in the matrix (GL-32).
 - `gpuledger report --prometheus URL --since 7d`: GPU-hours per job — reserved, held,
   idle and the idle share, most idle first — and per node and state, from the counters
   in Prometheus; `--json` under the JSON contract; a bearer token by variable name

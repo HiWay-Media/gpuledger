@@ -74,3 +74,26 @@ tests:
             exp_annotations:
               summary: "GPU 1 on gpud reserved and idle for over 6 hours"
               description: "Nomad reserved the card and nothing runs on it. Needs serve --history, which the system job sets."
+
+  # A job that leaves most of what it reserves idle over a day: "worker" idle all day,
+  # "restreamer" held all day, "tiny" idle but under a GPU-hour — only worker fires.
+  - interval: 1m
+    input_series:
+      - series: 'gpuledger_job_gpu_seconds_total{node="gpud",namespace="video",nomad_job="worker",use="idle"}'
+        values: '0+60x1500'
+      - series: 'gpuledger_job_gpu_seconds_total{node="gpud",namespace="video",nomad_job="worker",use="held"}'
+        values: '0x1500'
+      - series: 'gpuledger_job_gpu_seconds_total{node="gpud",namespace="default",nomad_job="restreamer",use="held"}'
+        values: '0+60x1500'
+      - series: 'gpuledger_job_gpu_seconds_total{node="gpud",namespace="default",nomad_job="restreamer",use="idle"}'
+        values: '0x1500'
+      - series: 'gpuledger_job_gpu_seconds_total{node="gpud",namespace="default",nomad_job="tiny",use="idle"}'
+        values: '0+1x1500'
+    alert_rule_test:
+      - eval_time: 1441m
+        alertname: GPULedgerJobMostlyIdle
+        exp_alerts:
+          - exp_labels: {severity: info, namespace: video, nomad_job: worker}
+            exp_annotations:
+              summary: "video/worker left most of its reserved GPU time idle over the last day"
+              description: "100% of the GPU time it reserved was idle. `gpuledger report --since 1d` has the detail."

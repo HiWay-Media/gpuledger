@@ -193,7 +193,8 @@ contract.
 **Alerts and a dashboard**, for Prometheus and Grafana:
 [`deploy/prometheus/gpuledger.rules.yml`](deploy/prometheus/gpuledger.rules.yml) —
 source down, an unreserved or unmanaged tenant, a card hot or thermally slowing down,
-reserved and idle for over six hours — driven by `gpuledger_findings{code,level}`, the
+reserved and idle for over six hours, a job that left most of a day's reserved GPU time
+idle — driven by `gpuledger_findings{code,level}`, the
 same verdict `check` gives, with a zero for every code so `> 0` always has a series;
 `gpuledger_worst_level` is `check`'s exit-code scale. The rules are unit-tested with
 `promtool test rules`. [`deploy/grafana/gpuledger.json`](deploy/grafana/gpuledger.json)
