@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hiway-media/gpuledger/internal/findings"
 	"github.com/hiway-media/gpuledger/internal/history"
@@ -48,7 +49,7 @@ func TestHandlers(t *testing.T) {
 	l := ledger.Ledger{Node: "gpud", Entries: []ledger.Entry{{GPU: nvidia.GPU{Index: 0, UUID: "GPU-a", Model: "L4"}}}}
 	get := func(path string) (int, string, string) {
 		rec := httptest.NewRecorder()
-		newMux(func() ledger.Ledger { return l }, findings.Default, func() *history.Counters { return nil }).ServeHTTP(rec, httptest.NewRequest("GET", path, nil))
+		newMux(func() ledger.Ledger { return l }, findings.Default, func() *history.Counters { return nil }, 15*time.Second).ServeHTTP(rec, httptest.NewRequest("GET", path, nil))
 		b, _ := io.ReadAll(rec.Body)
 		return rec.Code, rec.Header().Get("Content-Type"), string(b)
 	}
@@ -70,6 +71,19 @@ func TestHandlers(t *testing.T) {
 	}
 	if code, _, _ := get("/nope"); code != 404 {
 		t.Fatalf("unknown path: %d", code)
+	}
+	if code, ct, body := get("/"); code != 200 || ct != "text/html; charset=utf-8" || !strings.Contains(body, "gpuledger <span class=\"node\">gpud</span>") || !strings.Contains(body, `content="15"`) {
+		t.Fatalf("/ %d %s %s", code, ct, body)
+	}
+	if code, ct, _ := get("/style.css"); code != 200 || ct != "text/css; charset=utf-8" {
+		t.Fatalf("/style.css %d %s", code, ct)
+	}
+	for _, path := range []string{"/", "/metrics", "/ledger", "/healthz"} {
+		rec := httptest.NewRecorder()
+		newMux(func() ledger.Ledger { return l }, findings.Default, func() *history.Counters { return nil }, time.Second).ServeHTTP(rec, httptest.NewRequest("POST", path, nil))
+		if rec.Code != 405 || rec.Header().Get("Content-Security-Policy") == "" {
+			t.Fatalf("POST %s: %d %v", path, rec.Code, rec.Header())
+		}
 	}
 }
 

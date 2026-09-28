@@ -104,6 +104,14 @@ and per tenant
 image or a path. `/ledger` and `/findings` return the same as JSON; `/healthz` is 503,
 with the failing sources in the body, while a source is unreadable.
 
+**A page to look at.** `serve` answers `/` with the node's page: the GPUs, their state and
+since when, who reserved and who holds each, and the findings worst first — HTML
+rendered on the server, light and dark, refreshing every `--interval` with a meta tag,
+no script. Every endpoint is GET and HEAD only (anything else is a 405: gpuledger
+changes nothing), under a Content-Security-Policy that allows the page's own stylesheet
+and nothing else, with `nosniff`, no referrer and no framing; names are escaped, so a
+container named like markup is text.
+
 **Since when.** With `--history FILE`, `serve` remembers each GPU's state — free,
 reserved-idle, held or unaccounted — and when it entered it, so `reserved-idle` says
 *for 6h12m*, the number a scheduling decision needs. One record per GPU, no tenant in

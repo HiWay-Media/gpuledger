@@ -4,7 +4,8 @@
 //	                    who Nomad reserved it for, who actually holds it
 //	gpuledger check     findings, worst first: unmanaged or unreserved tenants, contention,
 //	                    saturated encoders, hot cards, reserved-but-idle, idle capacity
-//	gpuledger serve     HTTP: /metrics (Prometheus), /ledger (JSON), /findings (JSON), /healthz
+//	gpuledger serve     HTTP: / (the node's page), /metrics (Prometheus), /ledger (JSON), /findings
+//	                    (JSON), /healthz — GET and HEAD only
 //	gpuledger fleet     every node's /ledger, from --targets or Consul: `fleet ls` counts GPUs
 //	                    per node and per job, `fleet check` evaluates every node with one policy
 //	gpuledger report    GPU-hours per job (reserved, held, idle) and per node over --since,
@@ -56,6 +57,7 @@ import (
 	"github.com/hiway-media/gpuledger/internal/report"
 	"github.com/hiway-media/gpuledger/internal/tlsfiles"
 	"github.com/hiway-media/gpuledger/internal/version"
+	"github.com/hiway-media/gpuledger/internal/web"
 )
 
 type options struct {
@@ -374,7 +376,7 @@ func serve(ctx context.Context, o options) {
 		defer mu.RUnlock()
 		return current
 	}
-	mux := newMux(snap, policy(o), func() *history.Counters { c := h.Counters(); return &c })
+	mux := newMux(snap, policy(o), func() *history.Counters { c := h.Counters(); return &c }, o.interval)
 	fmt.Fprintf(os.Stderr, "gpuledger %s serving on %s (refresh %s)\n", version.Version, o.listen, o.interval)
 	if err := http.ListenAndServe(o.listen, mux); err != nil {
 		fmt.Fprintln(os.Stderr, "gpuledger:", err)
@@ -384,8 +386,20 @@ func serve(ctx context.Context, o options) {
 
 // newMux serves the snapshot: /metrics, /ledger, /findings, and /healthz, which is 503
 // with the failing sources named while any source is down.
-func newMux(snap func() ledger.Ledger, p findings.Policy, counters func() *history.Counters) *http.ServeMux {
+// Every endpoint is behind web.Secure: GET and HEAD only, and the page's headers.
+func newMux(snap func() ledger.Ledger, p findings.Policy, counters func() *history.Counters, refresh time.Duration) http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("/{$}", func(w http.ResponseWriter, _ *http.Request) {
+		l := snap()
+		page, err := web.NodePage(l, findings.Evaluate(l, p), refresh)
+		if err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write(page)
+	})
+	mux.HandleFunc("/style.css", web.StyleHandler)
 	mux.HandleFunc("/metrics", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 		l := snap()
@@ -409,7 +423,7 @@ func newMux(snap func() ledger.Ledger, p findings.Policy, counters func() *histo
 		}
 		fmt.Fprintln(w, "ok")
 	})
-	return mux
+	return web.Secure(mux)
 }
 
 // discover returns the endpoints: --targets as given, else Nomad's registrations of
