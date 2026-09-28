@@ -350,7 +350,7 @@ func serve(ctx context.Context, o options) {
 		defer mu.RUnlock()
 		return current
 	}
-	mux := newMux(snap, policy(o))
+	mux := newMux(snap, policy(o), func() *history.Counters { c := h.Counters(); return &c })
 	fmt.Fprintf(os.Stderr, "gpuledger %s serving on %s (refresh %s)\n", version.Version, o.listen, o.interval)
 	if err := http.ListenAndServe(o.listen, mux); err != nil {
 		fmt.Fprintln(os.Stderr, "gpuledger:", err)
@@ -360,12 +360,12 @@ func serve(ctx context.Context, o options) {
 
 // newMux serves the snapshot: /metrics, /ledger, /findings, and /healthz, which is 503
 // with the failing sources named while any source is down.
-func newMux(snap func() ledger.Ledger, p findings.Policy) *http.ServeMux {
+func newMux(snap func() ledger.Ledger, p findings.Policy, counters func() *history.Counters) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/metrics", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 		l := snap()
-		fmt.Fprint(w, metrics.Render(l, findings.Evaluate(l, p), findings.Codes(p)))
+		fmt.Fprint(w, metrics.Render(l, findings.Evaluate(l, p), findings.Codes(p), counters()))
 	})
 	mux.HandleFunc("/ledger", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

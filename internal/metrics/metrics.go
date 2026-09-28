@@ -5,9 +5,11 @@ package metrics
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/hiway-media/gpuledger/internal/findings"
+	"github.com/hiway-media/gpuledger/internal/history"
 	"github.com/hiway-media/gpuledger/internal/ledger"
 )
 
@@ -27,6 +29,7 @@ func labels(kv ...string) string {
 // exposition format wants a family's lines contiguous.
 type family struct {
 	name, help string
+	kind       string // "gauge" when empty
 	samples    []string
 }
 
@@ -37,7 +40,9 @@ func (f *family) add(labels string, value any) {
 // Render writes every gauge; labels never carry a command, an env value or a path.
 // fs are the ledger's findings and codes every code the policy can emit: each code
 // gets a series, 0 when absent, so an alert on "> 0" has something to compare.
-func Render(l ledger.Ledger, fs []findings.Finding, codes []findings.Code) string {
+// c, when not nil, are serve's history counters: seconds per GPU state and GPU-seconds
+// per job, as counters so Prometheus can take their increase over any window.
+func Render(l ledger.Ledger, fs []findings.Finding, codes []findings.Code, c *history.Counters) string {
 	fam := func(name, help string) *family { return &family{name: name, help: help} }
 	up := fam("gpuledger_up", "1 when every source was read, 0 when one failed.")
 	info := fam("gpuledger_gpu_info", "Static identity of the GPU.")
@@ -54,6 +59,23 @@ func Render(l ledger.Ledger, fs []findings.Finding, codes []findings.Code) strin
 	tmem := fam("gpuledger_tenant_memory_bytes", "Memory a tenant holds on a GPU.")
 	fcount := fam("gpuledger_findings", "Findings of each code on the node at the last refresh.")
 	worst := fam("gpuledger_worst_level", "The worst finding's level: 0 OK, 1 WARN, 2 BAD, 3 ERROR — check's exit-code scale.")
+	stateSec := fam("gpuledger_gpu_state_seconds_total", "Seconds the GPU has spent in each state, as serve observed it; gaps are nobody's time.")
+	stateSec.kind = "counter"
+	jobSec := fam("gpuledger_job_gpu_seconds_total", "GPU-seconds a job has had reserved: held (in use by its allocation) or idle.")
+	jobSec.kind = "counter"
+	if c != nil {
+		for _, g := range c.GPUs {
+			stateSec.add(labels("node", g.Node, "gpu", fmt.Sprint(g.Index), "uuid", g.UUID, "state", string(g.State)), strconv.FormatFloat(g.Seconds, 'f', -1, 64))
+		}
+		for _, j := range c.Jobs {
+			for _, u := range []struct {
+				use string
+				v   float64
+			}{{"held", j.Held}, {"idle", j.Idle}} {
+				jobSec.add(labels("node", l.Node, "namespace", j.Namespace, "nomad_job", j.Job, "use", u.use), strconv.FormatFloat(u.v, 'f', -1, 64))
+			}
+		}
+	}
 	tres := fam("gpuledger_tenant_reserved", "1 when Nomad allocated the GPU to the tenant's allocation.")
 	state := fam("gpuledger_gpu_state", "1 for the state the GPU is in: free, reserved-idle, held or unaccounted.")
 	since := fam("gpuledger_gpu_state_since_timestamp_seconds", "When the GPU entered its state, when serve keeps a --history.")
@@ -121,8 +143,12 @@ func Render(l ledger.Ledger, fs []findings.Finding, codes []findings.Code) strin
 		}
 	}
 	var b strings.Builder
-	for _, f := range []*family{up, fcount, worst, info, util, used, total, temp, power, enc, margin, slowdown, tenants, reservations, state, since, tmem, tres} {
-		fmt.Fprintf(&b, "# HELP %s %s\n# TYPE %s gauge\n", f.name, f.help, f.name)
+	for _, f := range []*family{up, fcount, worst, info, util, used, total, temp, power, enc, margin, slowdown, tenants, reservations, state, since, tmem, tres, stateSec, jobSec} {
+		kind := f.kind
+		if kind == "" {
+			kind = "gauge"
+		}
+		fmt.Fprintf(&b, "# HELP %s %s\n# TYPE %s %s\n", f.name, f.help, f.name, kind)
 		for _, s := range f.samples {
 			b.WriteString(s + "\n")
 		}
