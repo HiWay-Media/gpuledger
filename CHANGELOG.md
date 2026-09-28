@@ -5,6 +5,15 @@ versions follow [SemVer](https://semver.org/). Items reference their `GL-n` back
 
 ## [Unreleased]
 
+### Added
+- The node's page: `serve` answers `/` with the GPUs, their state and since when, who
+  reserved and who holds each, and the findings — server-rendered HTML, light and dark,
+  refreshing every `--interval` without a script (GL-33).
+- Safe to expose: every endpoint GET and HEAD only (405 otherwise), a
+  Content-Security-Policy that allows the page's own stylesheet and nothing else,
+  `nosniff`, `no-referrer`, `X-Frame-Options: DENY`, `no-store`; names escaped by
+  context, tested with a container named like a script (GL-36).
+
 ### Fixed
 - The site's navbar wrapped onto a second line and out of the header once the README
   grew to seven sections. It is one line now whatever the README grows to: the sections

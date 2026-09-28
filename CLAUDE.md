@@ -39,6 +39,8 @@ internal/testcerts/          a throwaway CA, server and client certificate for t
                              imported by tests only
 internal/report/             gpuledger report: two increase() queries over --since against Prometheus,
                              GPU-hours per job (reserved, held, idle, share) and per node and state
+internal/web/                the node's page (html/template, escaped by context), style.css (embedded; the
+                             CSP allows it and nothing else), Secure: GET/HEAD only and the headers
 internal/metrics/            Prometheus text exposition, hand-written
 internal/render/             the table and the findings text
 internal/version/            Version, set by -ldflags at release
@@ -67,7 +69,7 @@ BACKLOG.md / ROADMAP.md      single source of truth (GL-n ids) / generated view
 
 ## The rules the code encodes
 
-1. **Read-only.** No command that changes state is ever invoked; the Docker socket is
+1. **Read-only.** Every HTTP endpoint answers GET and HEAD only. No command that changes state is ever invoked; the Docker socket is
    used for GET only; Nomad for GET only. The one file written is `--history`, by
    `serve` only.
 2. **Never print what could carry a secret.** Process names are the binary alone

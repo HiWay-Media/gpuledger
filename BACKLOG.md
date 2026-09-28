@@ -198,10 +198,10 @@ gpuledger a page of its own: `serve` shows its node, `fleet serve` shows the clu
 from one process, both refresh by themselves, and both keep the rules — read-only,
 no dependency, no asset from anywhere else, nothing printed that could carry a secret.
 
-- [ ] **GL-33 — The node's page**: `serve` answers `/` with the ledger table, the findings
+- [x] **GL-33 — The node's page**: `serve` answers `/` with the ledger table, the findings
   worst first and, with `--history`, since when — plain HTML and CSS rendered on the
   server from the same data as `/ledger`, light and dark, refreshing itself without a
-  script. <!-- gl: prio=high size=M labels=enhancement,tests -->
+  script. <!-- gl: prio=high size=M labels=enhancement,tests ver=main -->
 - [ ] **GL-34 — `fleet serve`**: one process that polls every node's `/ledger` (the
   `fleet` discovery: `--targets`, `--nomad-service`, Consul) and serves `/fleet` JSON, a
   fleet page, and `/metrics` with the cluster's totals by state; an unreachable node is
@@ -209,7 +209,7 @@ no dependency, no asset from anywhere else, nothing printed that could carry a s
 - [ ] **GL-35 — A job for the fleet view**: `deploy/nomad/gpuledger-fleet.nomad.hcl`, one
   service instance with Nomad or Consul discovery, validated in the matrix and run there
   against the real node. <!-- gl: prio=med size=S labels=release,tests -->
-- [ ] **GL-36 — Safe to expose**: every endpoint GET and HEAD only (405 otherwise), a
+- [x] **GL-36 — Safe to expose**: every endpoint GET and HEAD only (405 otherwise), a
   strict Content-Security-Policy with no inline script or remote asset, `nosniff`, no
   referrer, HTML-escaped everywhere; tests that a container name full of markup renders
-  as text. <!-- gl: prio=high size=S labels=tests -->
+  as text. <!-- gl: prio=high size=S labels=tests ver=main -->

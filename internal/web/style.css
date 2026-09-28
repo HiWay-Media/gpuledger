@@ -1,0 +1,37 @@
+/* gpuledger's page: no remote font, no image, no script. Light and dark. */
+:root {
+  --bg: #fbfaf8; --panel: #ffffff; --ink: #1b1d20; --muted: #5d636b; --line: #e3e0da;
+  --ok: #1f7a4d; --warn: #9a6400; --bad: #b3261e; --error: #5b2a86; --accent: #0f6f7a;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #111214; --panel: #17191c; --ink: #e8e6e1; --muted: #9aa0a8; --line: #2a2d31;
+    --ok: #4cc38a; --warn: #e0a93c; --bad: #ff6b61; --error: #b98cf0; --accent: #4bb7c4; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+header, main, footer { max-width: 80rem; margin: 0 auto; padding: 0 1.25rem; }
+header { padding-top: 1.5rem; }
+h1 { font-size: 1.35rem; margin: 0 0 .25rem; letter-spacing: -.01em; }
+h1 .node { color: var(--accent); }
+h2 { font-size: 1rem; margin: 1.75rem 0 .6rem; }
+.meta, footer { color: var(--muted); font-size: .88rem; }
+footer { padding: 2rem 1.25rem 2.5rem; }
+a { color: var(--accent); }
+.scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+table { border-collapse: collapse; width: 100%; font-size: .9rem; }
+th, td { text-align: left; padding: .5rem .7rem; border-bottom: 1px solid var(--line); vertical-align: top; white-space: nowrap; }
+tbody tr:last-child td { border-bottom: 0; }
+th { color: var(--muted); font-weight: 600; font-size: .8rem; text-transform: uppercase; letter-spacing: .04em; }
+td.num { font-variant-numeric: tabular-nums; }
+.none { color: var(--muted); }
+.since { color: var(--muted); font-size: .85rem; }
+.level, .state { display: inline-block; font-size: .75rem; font-weight: 700; letter-spacing: .04em; padding: .05rem .45rem; border-radius: 4px; border: 1px solid currentColor; }
+.level.OK, .state.held, .state.free { color: var(--ok); }
+.level.WARN, .state.reserved-idle { color: var(--warn); }
+.level.BAD, .state.unaccounted { color: var(--bad); }
+.level.ERROR { color: var(--error); }
+ul.findings, .errors ul { list-style: none; padding: 0; margin: 0; }
+ul.findings li, .errors li { padding: .45rem 0; border-bottom: 1px solid var(--line); }
+code { font: .85rem ui-monospace, SFMono-Regular, Menlo, monospace; }
+.where { color: var(--muted); font-size: .85rem; }

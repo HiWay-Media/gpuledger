@@ -582,6 +582,22 @@ func metrics(t *testing.T, a *agent, bin, smi, token, promtool string) {
 	if _, err := os.Stat(hist); err != nil {
 		t.Errorf("serve --history writes the file: %v", err)
 	}
+	// The node's page, on real allocations, and read-only for real.
+	page, err := http.Get("http://" + listen + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pb, _ := io.ReadAll(page.Body)
+	page.Body.Close()
+	if page.StatusCode != 200 || !bytes.Contains(pb, []byte(`<span class="node">it</span>`)) || !bytes.Contains(pb, []byte("unreserved-tenant")) || page.Header.Get("Content-Security-Policy") == "" {
+		t.Errorf("GET /: %d %v\n%s", page.StatusCode, page.Header, pb)
+	}
+	if a.labels && !bytes.Contains(pb, []byte("nomad: enc/enc")) {
+		t.Errorf("the page names the Nomad task:\n%s", pb)
+	}
+	if res, err := http.Post("http://"+listen+"/metrics", "text/plain", nil); err != nil || res.StatusCode != 405 {
+		t.Errorf("POST must be refused: %v %v", err, res)
+	}
 	for _, want := range []string{`gpuledger_findings{node="it",code="unreserved-tenant",level="BAD"} 1`, `gpuledger_findings{node="it",code="source-unavailable",level="ERROR"} 0`, `gpuledger_worst_level{node="it"} 2`} {
 		if !bytes.Contains(body, []byte(want)) {
 			t.Errorf("missing %s in /metrics", want)
