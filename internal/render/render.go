@@ -156,6 +156,9 @@ func FleetFindings(fs []findings.Finding) string {
 
 // Report prints what the GPUs cost over the window: jobs by idle GPU-hours, then nodes.
 func Report(r report.Report) string {
+	if len(r.Jobs) == 0 && len(r.Nodes) == 0 {
+		return fmt.Sprintf("gpuledger report · no gpuledger counters in Prometheus over the last %s — increase() needs two scrapes of serve's /metrics inside the window", r.Since)
+	}
 	var reserved, idle float64
 	for _, j := range r.Jobs {
 		reserved += j.ReservedHours

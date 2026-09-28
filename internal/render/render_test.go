@@ -82,3 +82,12 @@ func TestReportTables(t *testing.T) {
 		}
 	}
 }
+
+// A Prometheus that has not scraped the counters twice in the window has nothing to
+// report: say so, rather than print empty tables.
+func TestEmptyReportSaysWhy(t *testing.T) {
+	out := Report(report.Report{Since: "7d"})
+	if !strings.Contains(out, "no gpuledger counters in Prometheus over the last 7d") {
+		t.Fatalf("%s", out)
+	}
+}
