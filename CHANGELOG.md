@@ -5,6 +5,12 @@ versions follow [SemVer](https://semver.org/). Items reference their `GL-n` back
 
 ## [Unreleased]
 
+### Fixed
+- The site's navbar wrapped onto a second line and out of the header once the README
+  grew to seven sections. It is one line now whatever the README grows to: the sections
+  scroll sideways when they do not fit, with a fade only on the side that hides some,
+  GitHub pinned outside the scroll, and only the logo and GitHub below 900 px.
+
 ## [0.4.0] — 2026-09-28
 
 What the GPUs cost: counters of the seconds each GPU spends in each state and of each

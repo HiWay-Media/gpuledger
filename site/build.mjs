@@ -252,14 +252,21 @@ header.top {
   background: var(--bg); background: color-mix(in srgb, var(--bg) 86%, transparent);
   border-bottom: 1px solid var(--line);
 }
-header.top .wrap { display: flex; align-items: center; gap: 1.5rem; height: 3.75rem; }
-.brand { display: inline-flex; align-items: center; font-weight: 650; letter-spacing: .06em; color: var(--ink); text-decoration: none; }
+header.top .wrap { display: flex; align-items: center; gap: 1.25rem; height: 3.75rem; }
+.brand { flex: none; display: inline-flex; align-items: center; font-weight: 650; letter-spacing: .06em; color: var(--ink); text-decoration: none; }
 .brand-mark { border-radius: 5px; margin-right: .55rem; }
 .hero-mark { display: block; margin-bottom: 1.5rem; border-radius: 15px; }
 .brand span { color: var(--accent); }
-header.top nav { margin-left: auto; display: flex; gap: 1.15rem; flex-wrap: wrap; }
-header.top nav a { color: var(--muted); text-decoration: none; font-size: .88rem; }
-header.top nav a:hover { color: var(--ink); }
+/* One line whatever the README grows to: the sections scroll sideways when they do not
+   fit, a fade marks the side with more, and GitHub stays pinned outside the scroll. */
+header.top nav { margin-left: auto; min-width: 0; display: flex; gap: .95rem; flex-wrap: nowrap; overflow-x: auto; white-space: nowrap; scrollbar-width: none; overscroll-behavior-x: contain; }
+header.top nav::-webkit-scrollbar { display: none; }
+header.top nav.more-right { mask-image: linear-gradient(to right, #000 calc(100% - 2.5rem), transparent); -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 2.5rem), transparent); }
+header.top nav.more-left { mask-image: linear-gradient(to left, #000 calc(100% - 2.5rem), transparent); -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 2.5rem), transparent); }
+header.top nav.more-left.more-right { mask-image: linear-gradient(to right, transparent, #000 2.5rem, #000 calc(100% - 2.5rem), transparent); -webkit-mask-image: linear-gradient(to right, transparent, #000 2.5rem, #000 calc(100% - 2.5rem), transparent); }
+header.top nav a, header.top .gh { flex: none; color: var(--muted); text-decoration: none; font-size: .84rem; }
+header.top nav a:hover, header.top .gh:hover { color: var(--ink); }
+header.top .gh { padding-left: .95rem; border-left: 1px solid var(--line); }
 
 /* hero */
 .hero { padding: 4.5rem 0 2.5rem; }
@@ -305,17 +312,18 @@ footer { border-top: 1px solid var(--line); padding: 2.5rem 0 4rem; color: var(-
 footer a { color: var(--muted); }
 footer .row { display: flex; gap: 1.25rem; flex-wrap: wrap; }
 @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
-@media (max-width: 640px) { .hero { padding-top: 3rem; } header.top nav a:not(.gh) { display: none; } }
+@media (max-width: 900px) { header.top nav { display: none; } header.top .gh { margin-left: auto; padding-left: 0; border-left: 0; } }
+@media (max-width: 640px) { .hero { padding-top: 3rem; } }
 </style>
 </head>
 <body>
 <header class="top">
   <div class="wrap">
     <a class="brand" href="#top">${mark(22, 'brand-mark')}${brandHtml}</a>
-    <nav>
+    <nav aria-label="Sections">
 ${nav.map((s) => `      <a href="#${slug(s.heading)}">${esc(s.heading)}</a>`).join('\n')}
-      <a class="gh" href="${REPO}">GitHub</a>
     </nav>
+    <a class="gh" href="${REPO}">GitHub</a>
   </div>
 </header>
 
@@ -345,6 +353,16 @@ ${rendered.join('\n\n')}
 </footer>
 
 <script>
+// The fade on the nav only where sections are hidden: none when they all fit.
+const sections = document.querySelector('header.top nav')
+const edges = () => {
+  const more = sections.scrollWidth - sections.clientWidth
+  sections.classList.toggle('more-left', sections.scrollLeft > 1)
+  sections.classList.toggle('more-right', more - sections.scrollLeft > 1)
+}
+sections.addEventListener('scroll', edges, { passive: true })
+addEventListener('resize', edges)
+edges()
 for (const pre of document.querySelectorAll('pre')) {
   const box = document.createElement('div')
   box.className = 'codeblock'
